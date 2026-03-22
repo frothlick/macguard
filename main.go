@@ -23,13 +23,18 @@ import (
 type GuardState struct {
 	mu sync.Mutex
 
-	Armed     bool
-	Mode      string // "move" or "geo"
+	// Independent arm modes
+	LocalArmed bool
+	LocalDelay int       // countdown seconds remaining
+	LocalAt    time.Time // when local was armed
+
+	GeoArmed bool
+	GeoDelay int       // countdown seconds remaining
+	GeoAt    time.Time // when geo was armed
+
 	Moving    bool
 	MagEWMA   float64
 	LastAlert time.Time
-	ArmedAt   time.Time
-	ArmDelay  int // countdown seconds remaining (0 = fully armed)
 
 	// Geo-fence
 	AnchorLat float64
@@ -155,16 +160,19 @@ func saveSettings(guard *GuardState) {
 	os.Rename(tmp, settingsPath())
 }
 
+type ModeStatus struct {
+	Status string `json:"status"` // "disarmed", "arming", "armed"
+	Delay  int    `json:"delay,omitempty"`
+}
+
 type StatusResponse struct {
-	Status      string       `json:"status"`
-	Mode        string       `json:"mode,omitempty"`
+	Local       ModeStatus   `json:"local"`
+	Geo         ModeStatus   `json:"geo"`
 	Moving      bool         `json:"moving,omitempty"`
 	Magnitude   float64      `json:"magnitude,omitempty"`
 	Baseline    float64      `json:"baseline"`
 	Calibrating bool         `json:"calibrating,omitempty"`
 	LastAlert   string       `json:"lastAlert,omitempty"`
-	ArmedAt     string       `json:"armedAt,omitempty"`
-	ArmDelay    int          `json:"armDelay,omitempty"`
 	Notify      NotifyStatus `json:"notify"`
 }
 
@@ -322,9 +330,10 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 
 			case "/help", "/?":
 				helpText := "*MacGuard Commands*\n\n" +
-					"/arm — Arm (movement mode)\n" +
-					"/arm\\_geo — Arm (geo-fence mode)\n" +
-					"/disarm — Disarm\n" +
+					"/arm — Arm local guard\n" +
+					"/arm\\_geo — Arm geo guard\n" +
+					"/arm\\_both — Arm both guards\n" +
+					"/disarm — Disarm all\n" +
 					"/status — Show guard status\n" +
 					"/location — Send current location\n" +
 					"/msg — Display message on Mac\n" +
@@ -338,13 +347,13 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 					continue
 				}
 				guard.mu.Lock()
-				guard.Armed = true
-				guard.Mode = "move"
+				guard.LocalArmed = true
+				guard.LocalDelay = 0
+				guard.LocalAt = time.Now()
 				guard.Moving = false
 				guard.MagEWMA = 0
-				guard.ArmedAt = time.Now()
 				guard.mu.Unlock()
-				sendAlert(guard, token, chatID, 0)
+				sendTelegramMessage(token, chatID, "Local guard armed.")
 
 			case "/arm_geo":
 				if chatID != ownerChat {
@@ -357,15 +366,41 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 					continue
 				}
 				guard.mu.Lock()
-				guard.Armed = true
-				guard.Mode = "geo"
-				guard.Moving = false
-				guard.MagEWMA = 0
-				guard.ArmedAt = time.Now()
+				guard.GeoArmed = true
+				guard.GeoDelay = 0
+				guard.GeoAt = time.Now()
 				guard.AnchorLat = geo.Lat
 				guard.AnchorLon = geo.Lon
+				guard.Moving = false
+				guard.MagEWMA = 0
 				guard.mu.Unlock()
-				sendAlert(guard, token, chatID, 0)
+				sendTelegramMessage(token, chatID, "Geo guard armed.")
+
+			case "/arm_both":
+				if chatID != ownerChat {
+					sendTelegramMessage(token, chatID, "Not authorized.")
+					continue
+				}
+				geo := getLocation()
+				guard.mu.Lock()
+				guard.LocalArmed = true
+				guard.LocalDelay = 0
+				guard.LocalAt = time.Now()
+				if geo != nil && geo.Precise {
+					guard.GeoArmed = true
+					guard.GeoDelay = 0
+					guard.GeoAt = time.Now()
+					guard.AnchorLat = geo.Lat
+					guard.AnchorLon = geo.Lon
+				}
+				guard.Moving = false
+				guard.MagEWMA = 0
+				guard.mu.Unlock()
+				if geo != nil && geo.Precise {
+					sendTelegramMessage(token, chatID, "Both guards armed.")
+				} else {
+					sendTelegramMessage(token, chatID, "Local guard armed. Geo unavailable (no precise location).")
+				}
 
 			case "/disarm":
 				if chatID != ownerChat {
@@ -373,11 +408,14 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 					continue
 				}
 				guard.mu.Lock()
-				guard.Armed = false
+				guard.LocalArmed = false
+				guard.LocalDelay = 0
+				guard.GeoArmed = false
+				guard.GeoDelay = 0
 				guard.Moving = false
 				guard.MagEWMA = 0
 				guard.mu.Unlock()
-				sendTelegramMessage(token, chatID, "Disarmed.")
+				sendTelegramMessage(token, chatID, "All guards disarmed.")
 
 			case "/status":
 				if chatID != ownerChat {
@@ -385,16 +423,16 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 					continue
 				}
 				guard.mu.Lock()
-				armed := guard.Armed
-				mode := guard.Mode
+				localArmed := guard.LocalArmed
+				geoArmed := guard.GeoArmed
 				moving := guard.Moving
 				mag := guard.MagEWMA
 				guard.mu.Unlock()
-				status := "Disarmed"
-				if armed {
-					status = fmt.Sprintf("Armed (%s)", mode)
-				}
-				text := fmt.Sprintf("*MacGuard Status*\n%s\nMoving: %v\nMagnitude: `%.3fg`", status, moving, mag)
+				localStr := "off"
+				if localArmed { localStr = "ARMED" }
+				geoStr := "off"
+				if geoArmed { geoStr = "ARMED" }
+				text := fmt.Sprintf("*MacGuard Status*\nLocal: %s | Geo: %s\nMoving: %v\nMagnitude: `%.3fg`", localStr, geoStr, moving, mag)
 				sendTelegramMessage(token, chatID, text)
 
 			case "/msg":
@@ -515,7 +553,9 @@ func monitorLoop(ctx context.Context, guard *GuardState, ring *shm.RingBuffer) {
 			guard.mu.Lock()
 		}
 
-		if guard.Armed && guard.ArmDelay <= 0 {
+		localReady := guard.LocalArmed && guard.LocalDelay <= 0
+		geoReady := guard.GeoArmed && guard.GeoDelay <= 0
+		if (localReady || geoReady) {
 			if guard.MagEWMA >= guard.Threshold {
 				if !guard.Moving {
 					guard.Moving = true
@@ -525,19 +565,21 @@ func monitorLoop(ctx context.Context, guard *GuardState, ring *shm.RingBuffer) {
 					mag := guard.MagEWMA
 					token := guard.Token
 					chatID := guard.ChatID
-					mode := guard.Mode
 					guard.LastAlert = time.Now()
 
-					if mode == "geo" {
-						// Geo-fence: check location on movement
+					if localReady {
+						guard.mu.Unlock()
+						go sendAlert(guard, token, chatID, mag)
+						guard.mu.Lock()
+					}
+					if geoReady {
 						anchorLat := guard.AnchorLat
 						anchorLon := guard.AnchorLon
 						guard.mu.Unlock()
 						go checkGeoFence(guard, token, chatID, anchorLat, anchorLon, mag)
-					} else {
-						guard.mu.Unlock()
-						go sendAlert(guard, token, chatID, mag)
+						guard.mu.Lock()
 					}
+					guard.mu.Unlock()
 					continue
 				}
 			} else if guard.MagEWMA < 0.020 {
@@ -567,7 +609,6 @@ func startHTTPServer(guard *GuardState, port int) {
 		}
 
 		if body.Mode == "geo" {
-			// Need precise location for geo-fence
 			geo := getLocation()
 			if geo == nil || !geo.Precise {
 				w.Header().Set("Content-Type", "application/json")
@@ -583,29 +624,45 @@ func startHTTPServer(guard *GuardState, port int) {
 			guard.mu.Unlock()
 		}
 
+		modeLabel := "local"
+		if body.Mode == "geo" {
+			modeLabel = "geo"
+		}
+
 		if body.Delay > 0 {
 			guard.mu.Lock()
-			guard.Armed = true
-			guard.Mode = body.Mode
+			if body.Mode == "move" {
+				guard.LocalArmed = true
+				guard.LocalDelay = body.Delay
+				guard.LocalAt = time.Now().Add(time.Duration(body.Delay) * time.Second)
+			} else {
+				guard.GeoArmed = true
+				guard.GeoDelay = body.Delay
+				guard.GeoAt = time.Now().Add(time.Duration(body.Delay) * time.Second)
+			}
 			guard.Moving = false
 			guard.MagEWMA = 0
-			guard.ArmDelay = body.Delay
-			guard.ArmedAt = time.Now().Add(time.Duration(body.Delay) * time.Second)
 			guard.mu.Unlock()
 
-			// Countdown in background
 			go func() {
 				for i := body.Delay; i > 0; i-- {
 					time.Sleep(1 * time.Second)
 					guard.mu.Lock()
-					guard.ArmDelay = i - 1
+					if body.Mode == "move" {
+						guard.LocalDelay = i - 1
+					} else {
+						guard.GeoDelay = i - 1
+					}
 					guard.mu.Unlock()
 				}
 				guard.mu.Lock()
-				guard.ArmedAt = time.Now()
+				if body.Mode == "move" {
+					guard.LocalAt = time.Now()
+				} else {
+					guard.GeoAt = time.Now()
+				}
 				guard.mu.Unlock()
-				fmt.Fprintf(os.Stderr, "macguard: ARMED (%s)\n", body.Mode)
-				go sendAlert(guard, guard.Token, guard.ChatID, 0)
+				fmt.Fprintf(os.Stderr, "macguard: ARMED (%s)\n", modeLabel)
 			}()
 
 			w.Header().Set("Content-Type", "application/json")
@@ -618,29 +675,51 @@ func startHTTPServer(guard *GuardState, port int) {
 		}
 
 		guard.mu.Lock()
-		guard.Armed = true
-		guard.Mode = body.Mode
+		if body.Mode == "move" {
+			guard.LocalArmed = true
+			guard.LocalDelay = 0
+			guard.LocalAt = time.Now()
+		} else {
+			guard.GeoArmed = true
+			guard.GeoDelay = 0
+			guard.GeoAt = time.Now()
+		}
 		guard.Moving = false
 		guard.MagEWMA = 0
-		guard.ArmDelay = 0
-		guard.ArmedAt = time.Now()
 		guard.mu.Unlock()
 
-		fmt.Fprintf(os.Stderr, "macguard: ARMED (%s)\n", body.Mode)
-		go sendTelegramMessage(guard.Token, guard.ChatID, fmt.Sprintf("*macguard armed* (%s mode)", body.Mode))
+		fmt.Fprintf(os.Stderr, "macguard: ARMED (%s)\n", modeLabel)
+		go sendTelegramMessage(guard.Token, guard.ChatID, fmt.Sprintf("*macguard armed* (%s mode)", modeLabel))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "armed", "mode": body.Mode})
 	})
 
 	mux.HandleFunc("POST /disarm", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Mode string `json:"mode"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+
 		guard.mu.Lock()
-		guard.Armed = false
-		guard.Moving = false
-		guard.ArmDelay = 0
-		guard.Mode = ""
+		if body.Mode == "move" {
+			guard.LocalArmed = false
+			guard.LocalDelay = 0
+		} else if body.Mode == "geo" {
+			guard.GeoArmed = false
+			guard.GeoDelay = 0
+		} else {
+			// Disarm both
+			guard.LocalArmed = false
+			guard.LocalDelay = 0
+			guard.GeoArmed = false
+			guard.GeoDelay = 0
+		}
+		if !guard.LocalArmed && !guard.GeoArmed {
+			guard.Moving = false
+		}
 		guard.mu.Unlock()
 
-		fmt.Fprintf(os.Stderr, "macguard: DISARMED\n")
+		fmt.Fprintf(os.Stderr, "macguard: DISARMED (%s)\n", body.Mode)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "disarmed"})
 	})
@@ -736,21 +815,27 @@ func startHTTPServer(guard *GuardState, port int) {
 				Email:    guard.NotifyEmailFlag && guard.SMTPHost != "" && guard.NotifyEmail != "",
 			},
 		}
-		if guard.Armed {
-			if guard.ArmDelay > 0 {
-				resp.Status = "arming"
+		if guard.LocalArmed {
+			if guard.LocalDelay > 0 {
+				resp.Local = ModeStatus{Status: "arming", Delay: guard.LocalDelay}
 			} else {
-				resp.Status = "armed"
-			}
-			resp.Mode = guard.Mode
-			resp.Moving = guard.Moving
-			resp.ArmDelay = guard.ArmDelay
-			resp.ArmedAt = guard.ArmedAt.Format(time.RFC3339)
-			if !guard.LastAlert.IsZero() {
-				resp.LastAlert = guard.LastAlert.Format(time.RFC3339)
+				resp.Local = ModeStatus{Status: "armed"}
 			}
 		} else {
-			resp.Status = "disarmed"
+			resp.Local = ModeStatus{Status: "disarmed"}
+		}
+		if guard.GeoArmed {
+			if guard.GeoDelay > 0 {
+				resp.Geo = ModeStatus{Status: "arming", Delay: guard.GeoDelay}
+			} else {
+				resp.Geo = ModeStatus{Status: "armed"}
+			}
+		} else {
+			resp.Geo = ModeStatus{Status: "disarmed"}
+		}
+		resp.Moving = guard.Moving
+		if !guard.LastAlert.IsZero() {
+			resp.LastAlert = guard.LastAlert.Format(time.RFC3339)
 		}
 		guard.mu.Unlock()
 
@@ -766,16 +851,23 @@ func startHTTPServer(guard *GuardState, port int) {
 			return
 		}
 		go appendLocationRecord(geo)
-		json.NewEncoder(w).Encode(map[string]any{
+		resp := map[string]any{
 			"status":  "ok",
 			"precise": geo.Precise,
+			"vpn":     geo.VPN,
 			"city":    geo.City,
 			"region":  geo.Region,
 			"country": geo.Country,
 			"isp":     geo.ISP,
 			"lat":     geo.Lat,
 			"lon":     geo.Lon,
-		})
+		}
+		if geo.VPN {
+			resp["vpnCity"] = geo.VPNCity
+			resp["vpnRegion"] = geo.VPNRegion
+			resp["vpnCountry"] = geo.VPNCountry
+		}
+		json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("GET /locations", func(w http.ResponseWriter, r *http.Request) {

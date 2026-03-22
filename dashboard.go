@@ -20,7 +20,7 @@ const dashboardHTML = `<!DOCTYPE html>
   .theme-toggle { background: var(--picker-bg); border: 1px solid var(--picker-border); color: var(--muted); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 0.85em; }
   .theme-toggle:hover { filter: brightness(1.2); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .card.full { grid-column: 1 / -1; }
   .card h2 { color: var(--muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
@@ -168,22 +168,17 @@ const dashboardHTML = `<!DOCTYPE html>
 </div>
 
 <div class="grid3">
-  <div class="card">
-    <h2>Guard Status</h2>
-    <div id="guard-status">...</div>
-    <div id="notify-status" style="margin-top:6px; font-size:0.78em; color:var(--muted)"></div>
-    <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap">
-      <select id="arm-mode" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:5px 8px; font-size:0.85em">
-        <option value="move">Move</option>
-        <option value="geo">Geo-fence</option>
-      </select>
-      <input id="arm-delay" type="number" min="0" max="300" value="0" placeholder="delay (s)" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:5px 8px; width:70px; font-size:0.85em" title="Arm delay in seconds">
-      <span style="font-size:0.7em; color:var(--dim)">s</span>
-    </div>
-    <div class="controls">
-      <button class="btn btn-arm" onclick="doArm()">Arm</button>
-      <button class="btn btn-disarm" onclick="doDisarm()">Disarm</button>
-    </div>
+  <div class="card" id="card-local" style="transition: opacity 0.3s">
+    <h2>Local Guard</h2>
+    <div style="font-size:0.82em; color:var(--muted); margin-bottom:10px">Alerts when your Mac is physically moved</div>
+    <div id="local-status"></div>
+    <div id="local-controls" class="controls" style="margin-top:10px"></div>
+  </div>
+  <div class="card" id="card-geo" style="transition: opacity 0.3s">
+    <h2>Geo Guard</h2>
+    <div style="font-size:0.82em; color:var(--muted); margin-bottom:10px">Alerts if your Mac leaves this location</div>
+    <div id="geo-status"></div>
+    <div id="geo-controls" class="controls" style="margin-top:10px"></div>
   </div>
   <div class="card">
     <h2>Current Magnitude</h2>
@@ -237,7 +232,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <span class="z-lap">lap use</span>
       <span class="z-motion">in motion</span>
       <span class="z-impact">impact</span>
-      <span style="font-size:0.75em; color:var(--muted)"><span style="display:inline-block; width:10px; height:4px; background:#ff330055; vertical-align:middle; margin-right:4px; border-radius:1px"></span>lid closed</span>
+      <span style="font-size:0.75em; color:var(--muted)"><canvas id="zone-lid-icon" width="12" height="12" style="vertical-align:middle; margin-right:4px"></canvas>lid closed</span>
     </div>
   </div>
 </div>
@@ -287,18 +282,22 @@ async function doCalibrate() {
   setTimeout(function() { document.getElementById('calib-btn').textContent = 'Calibrate'; loadStatus(); }, 3500);
 }
 
-async function doArm() {
-  const mode = document.getElementById('arm-mode').value;
-  const delay = parseInt(document.getElementById('arm-delay').value) || 0;
+async function doArm(mode) {
+  const s = await fetch('/settings').then(r => r.json()).catch(function() { return {}; });
+  const delay = s.defaultDelay || 0;
   await fetch('/arm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode, delay })
+    body: JSON.stringify({ mode: mode, delay: delay })
   });
   loadStatus();
 }
-async function doDisarm() {
-  await fetch('/disarm', { method: 'POST' });
+async function doDisarm(mode) {
+  await fetch('/disarm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: mode })
+  });
   loadStatus();
 }
 
@@ -307,21 +306,35 @@ async function loadStatus() {
   try {
     const r = await fetch('/status');
     const d = await r.json();
-    const el = document.getElementById('guard-status');
-    let cls = 'status-disarmed';
-    let label = 'DISARMED';
-    if (d.status === 'armed') { cls = 'status-armed'; label = 'ARMED'; }
-    else if (d.status === 'arming') { cls = 'status-armed'; label = 'ARMING ' + d.armDelay + 's'; }
-    let html = '<span class="status-badge ' + cls + '">' + label + '</span>';
-    if (d.mode) html += ' <span style="color:var(--dim); font-size:0.8em">' + d.mode + '</span>';
-    if (d.moving) html += ' <span style="color:#ff5500; font-weight:700"> MOVING</span>';
-    el.innerHTML = html;
+    // Local Guard card
+    var localCard = document.getElementById('card-local');
+    var localStatus = document.getElementById('local-status');
+    var localCtrl = document.getElementById('local-controls');
+    if (d.local.status === 'armed') {
+      localStatus.innerHTML = '<span class="status-badge status-armed">ARMED</span>' + (d.moving ? ' <span style="color:#ff5500; font-weight:700">MOVING</span>' : '');
+      localCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'move\')" style="flex:1">Disarm</button>';
+    } else if (d.local.status === 'arming') {
+      localStatus.innerHTML = '<span class="status-badge status-armed">ARMING ' + d.local.delay + 's</span>';
+      localCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'move\')" style="flex:1">Cancel</button>';
+    } else {
+      localStatus.innerHTML = '';
+      localCtrl.innerHTML = '<button class="btn btn-arm" onclick="doArm(\'move\')" style="flex:1">Arm</button>';
+    }
 
-    // Notification channels
-    const nEl = document.getElementById('notify-status');
-    const tg = d.notify && d.notify.telegram ? '<span style="color:#00ffaa">Telegram</span>' : '<span style="color:#555">Telegram</span>';
-    const em = d.notify && d.notify.email ? '<span style="color:#00ffaa">Email</span>' : '<span style="color:#555">Email</span>';
-    nEl.innerHTML = 'Notify: ' + tg + ' · ' + em;
+    // Geo Guard card
+    var geoCard = document.getElementById('card-geo');
+    var geoStatus = document.getElementById('geo-status');
+    var geoCtrl = document.getElementById('geo-controls');
+    if (d.geo.status === 'armed') {
+      geoStatus.innerHTML = '<span class="status-badge status-armed">ARMED</span>' + (d.moving ? ' <span style="color:#ff5500; font-weight:700">MOVING</span>' : '');
+      geoCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'geo\')" style="flex:1">Disarm</button>';
+    } else if (d.geo.status === 'arming') {
+      geoStatus.innerHTML = '<span class="status-badge status-armed">ARMING ' + d.geo.delay + 's</span>';
+      geoCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'geo\')" style="flex:1">Cancel</button>';
+    } else {
+      geoStatus.innerHTML = '';
+      geoCtrl.innerHTML = '<button class="btn btn-arm" onclick="doArm(\'geo\')" style="flex:1">Arm</button>';
+    }
 
     const mag = d.magnitude || 0;
     document.getElementById('magnitude').textContent = d.calibrating ? 'calibrating...' : mag.toFixed(3) + 'g';
@@ -344,7 +357,14 @@ async function refreshLocation() {
       if (d.country) txt += ', ' + d.country;
       txt += ' (' + d.lat.toFixed(4) + ', ' + d.lon.toFixed(4) + ')';
       const precLabel = d.precise ? ' <span style="color:#00ffaa">[precise]</span>' : ' <span style="color:#ff9900">[approx]</span>';
-      document.getElementById('loc-current').innerHTML = txt + precLabel;
+      var html = txt + precLabel;
+      if (d.vpn) {
+        var vpnLoc = d.vpnCity || '';
+        if (d.vpnRegion) vpnLoc += ', ' + d.vpnRegion;
+        if (d.vpnCountry) vpnLoc += ', ' + d.vpnCountry;
+        html += '<div style="margin-top:4px; font-size:0.8em"><span style="color:#ff5500; font-weight:600">VPN</span> <span style="color:var(--dim)">' + vpnLoc + '</span></div>';
+      }
+      document.getElementById('loc-current').innerHTML = html;
       userLat = d.lat; userLon = d.lon;
       if (map) map.setView([d.lat, d.lon], 14);
     } else {
@@ -895,7 +915,6 @@ async function saveSettingsUI() {
   try {
     await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) });
     document.getElementById('settings-msg').textContent = 'Saved';
-    document.getElementById('arm-delay').value = s.defaultDelay;
     setTimeout(function() { document.getElementById('settings-msg').textContent = ''; }, 2000);
     loadStatus();
   } catch(e) {
@@ -969,12 +988,22 @@ const initTile = isDark ? tiles.dark : tiles.light;
 tileLayer = L.tileLayer(initTile.url, { attribution: initTile.attr, maxZoom: 19 }).addTo(map);
 applyTheme();
 
+// Draw hatched lid-closed icon in zone legend
+(function() {
+  var c = document.getElementById('zone-lid-icon');
+  if (!c) return;
+  var x = c.getContext('2d');
+  x.fillStyle = '#88888822'; x.fillRect(0, 0, 12, 12);
+  x.strokeStyle = '#88888866'; x.lineWidth = 1;
+  for (var k = -12; k < 12; k += 4) { x.beginPath(); x.moveTo(k, 12); x.lineTo(k + 12, 0); x.stroke(); }
+})();
+
 loadStatus();
 loadChart();
 refreshLocation();
 checkTrainingStatus();
 // Load default delay from settings
-fetch('/settings').then(r => r.json()).then(s => { document.getElementById('arm-delay').value = s.defaultDelay || 0; }).catch(function(){});
+fetch('/settings').then(r => r.json()).catch(function(){});
 setInterval(loadStatus, 2000);
 setInterval(loadChart, 60000);
 </script>

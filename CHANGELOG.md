@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.3.0 — 2026-03-22
+
+### Independent Guard Modes
+- Local Guard and Geo Guard are now fully independent — arm one, both, or neither
+- Each mode has its own card with description, status badge, and arm/disarm button
+- No more confusing dropdown or shared countdown
+- Telegram commands updated: `/arm`, `/arm_geo`, `/arm_both`, `/disarm`
+
+### VPN Detection
+- Detects VPN by comparing GPS coordinates vs IP geolocation (>100km = VPN)
+- Shows actual location (reverse geocoded from GPS) as primary
+- VPN exit location shown below with red VPN badge
+- Uses Nominatim reverse geocoding for accurate location names from GPS
+
+### Dashboard Improvements
+- Avg line changed from green to solid gray; Peak line is opaque dashed orange
+- Custom canvas legend icons: solid line with dot (Average), dashed line (Peak), hatched box (Lid closed)
+- Lid-closed zones shown with diagonal gray hatching pattern instead of red bar
+- Tooltips now show all sensor data: avg, peak, tilt, lid angle, lid state
+- Zone legend at bottom updated to match chart hatching style
+- About tab in Settings with author info and GitHub link
+- Removed delay input from main UI (uses default from Settings)
+
+### Zone Classification
+- Tilt-based lap detection: laptop tilted >15° with peak activity classified as "lap"
+- Fixes resting misclassification during active desk work (typing)
+
 ## v0.2.0 — 2026-03-22
 
 ### Dashboard

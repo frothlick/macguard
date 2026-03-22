@@ -25,7 +25,11 @@ type GeoLocation struct {
 	Lat     float64 `json:"lat"`
 	Lon     float64 `json:"lon"`
 	Status  string  `json:"status"`
-	Precise bool    `json:"-"`
+	Precise    bool   `json:"-"`
+	VPN        bool   `json:"vpn,omitempty"`
+	VPNCity    string `json:"-"`
+	VPNRegion  string `json:"-"`
+	VPNCountry string `json:"-"`
 }
 
 var (
@@ -83,6 +87,52 @@ func getPreciseLocation() *PreciseLocation {
 	return &loc
 }
 
+// haversineDist returns distance in km between two lat/lon points.
+func haversineDist(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371.0
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+// reverseGeocode uses Nominatim to get city/region/country from coordinates.
+func reverseGeocode(lat, lon float64) (city, region, country string) {
+	u := fmt.Sprintf("https://nominatim.openstreetmap.org/reverse?format=json&lat=%.6f&lon=%.6f&zoom=10", lat, lon)
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("User-Agent", "macguard/0.2")
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Address struct {
+			City    string `json:"city"`
+			Town    string `json:"town"`
+			Village string `json:"village"`
+			State   string `json:"state"`
+			Country string `json:"country"`
+		} `json:"address"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&result) != nil {
+		return
+	}
+	city = result.Address.City
+	if city == "" {
+		city = result.Address.Town
+	}
+	if city == "" {
+		city = result.Address.Village
+	}
+	region = result.Address.State
+	country = result.Address.Country
+	return
+}
+
 func getLocation() *GeoLocation {
 	geoMu.Lock()
 	defer geoMu.Unlock()
@@ -101,16 +151,33 @@ func getLocation() *GeoLocation {
 	// Try precise CoreLocation first
 	precise := getPreciseLocation()
 	if precise != nil {
-		// Also fetch IP geolocation for city/region metadata
+		// Get IP geolocation for VPN comparison
 		ipGeo := fetchIPGeo()
-		city := fmt.Sprintf("Precise (%.0fm)", precise.Accuracy)
-		region := ""
-		country := ""
-		if ipGeo != nil {
-			city = ipGeo.City
-			region = ipGeo.Region
-			country = ipGeo.Country
+
+		// Reverse geocode GPS coordinates for actual location name
+		actualCity, actualRegion, actualCountry := reverseGeocode(precise.Lat, precise.Lon)
+		if actualCity == "" {
+			actualCity = fmt.Sprintf("%.4f, %.4f", precise.Lat, precise.Lon)
 		}
+
+		// Use IP geo for display name, detect VPN by distance
+		vpn := false
+		city := actualCity
+		region := actualRegion
+		country := actualCountry
+		vpnCity := ""
+		vpnRegion := ""
+		vpnCountry := ""
+		if ipGeo != nil {
+			dist := haversineDist(precise.Lat, precise.Lon, ipGeo.Lat, ipGeo.Lon)
+			if dist > 100 {
+				vpn = true
+				vpnCity = ipGeo.City
+				vpnRegion = ipGeo.Region
+				vpnCountry = ipGeo.Country
+			}
+		}
+
 		geoCache = &GeoLocation{
 			Lat:     precise.Lat,
 			Lon:     precise.Lon,
@@ -120,6 +187,10 @@ func getLocation() *GeoLocation {
 			Country: country,
 			ISP:     "CoreLocation",
 			Precise: true,
+			VPN:     vpn,
+			VPNCity:    vpnCity,
+			VPNRegion:  vpnRegion,
+			VPNCountry: vpnCountry,
 		}
 		geoCacheTime = time.Now()
 		return geoCache
@@ -178,9 +249,13 @@ func sendAlert(guard *GuardState, token string, chatID int64, mag float64) {
 	if mag == 0 {
 		// Arm confirmation
 		guard.mu.Lock()
-		mode := guard.Mode
+		var modes []string
+		if guard.LocalArmed { modes = append(modes, "local") }
+		if guard.GeoArmed { modes = append(modes, "geo") }
 		guard.mu.Unlock()
-		text = fmt.Sprintf("*macguard armed* (%s mode)\n_%s_", mode, now)
+		modeStr := "unknown"
+		if len(modes) > 0 { modeStr = strings.Join(modes, "+") }
+		text = fmt.Sprintf("*macguard armed* (%s)\n_%s_", modeStr, now)
 	} else {
 		text = fmt.Sprintf("*Your Mac is being moved!*\n_%s_\nMagnitude: `%.3fg`", now, mag)
 	}
