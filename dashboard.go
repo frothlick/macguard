@@ -78,6 +78,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <button onclick="setSettingsTab('general')" id="tab-general" style="background:none; border:none; border-bottom:2px solid var(--accent); color:var(--text); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">General</button>
       <button onclick="setSettingsTab('telegram')" id="tab-telegram" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">Telegram</button>
       <button onclick="setSettingsTab('email')" id="tab-email" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">Email</button>
+      <button onclick="setSettingsTab('about')" id="tab-about" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">About</button>
     </div>
 
     <div id="tab-content-general">
@@ -146,6 +147,19 @@ const dashboardHTML = `<!DOCTYPE html>
         </div>
         <span style="font-size:0.72em; color:var(--dim); display:block; margin-top:8px">Use port 465 (SSL) or 587 (TLS)</span>
       </div>
+    </div>
+
+    <div id="tab-content-about" style="display:none; text-align:center; padding:20px 0">
+      <div style="font-size:1.4em; font-weight:700; margin-bottom:4px">MacGuard</div>
+      <div style="font-size:0.82em; color:var(--muted); margin-bottom:20px">Theft-detection daemon for Apple Silicon Macs</div>
+      <div style="margin-bottom:16px">
+        <div style="font-size:0.9em; font-weight:500">Alexander Wipf</div>
+        <a href="mailto:alexander@wipf.com" style="font-size:0.82em; color:var(--accent); text-decoration:none">alexander@wipf.com</a>
+      </div>
+      <div style="margin-bottom:20px">
+        <a href="https://github.com/frothlick/macguard" target="_blank" style="font-size:0.85em; color:var(--accent); text-decoration:none">github.com/frothlick/macguard</a>
+      </div>
+      <div style="font-size:0.72em; color:var(--dim)">v0.2.0</div>
     </div>
 
     <button class="btn btn-disarm" onclick="saveSettingsUI()" style="width:100%; padding:10px">Save</button>
@@ -823,7 +837,7 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, se
 
 // --- Settings ---
 function setSettingsTab(tab) {
-  ['general','telegram','email'].forEach(function(t) {
+  ['general','telegram','email','about'].forEach(function(t) {
     document.getElementById('tab-content-' + t).style.display = t === tab ? 'block' : 'none';
     var btn = document.getElementById('tab-' + t);
     btn.style.borderBottomColor = t === tab ? 'var(--accent)' : 'transparent';
