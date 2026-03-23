@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +21,7 @@ type MovementRecord struct {
 	LidAngle float64 `json:"lidAngle"`
 	Tilt     float64 `json:"tilt"`
 	AC       *bool   `json:"ac,omitempty"`
+	Battery  int     `json:"bat,omitempty"`
 	Zone     string  `json:"zone"`
 }
 
@@ -49,6 +52,21 @@ func isOnAC() bool {
 		return false
 	}
 	return strings.Contains(string(out), "'AC Power'")
+}
+
+var batteryRe = regexp.MustCompile(`(\d+)%`)
+
+func getBatteryPercent() int {
+	out, err := exec.Command("pmset", "-g", "ps").Output()
+	if err != nil {
+		return -1
+	}
+	m := batteryRe.FindSubmatch(out)
+	if m == nil {
+		return -1
+	}
+	pct, _ := strconv.Atoi(string(m[1]))
+	return pct
 }
 
 func isLidOpen() bool {
@@ -277,6 +295,7 @@ func appendMovementRecord(guard *GuardState) {
 	lid := isLidOpen()
 	angle := getLidAngle()
 	ac := isOnAC()
+	bat := getBatteryPercent()
 	now := time.Now()
 	date := now.Format("2006-01-02")
 	rec := MovementRecord{
@@ -287,6 +306,7 @@ func appendMovementRecord(guard *GuardState) {
 		LidAngle: angle,
 		Tilt:     math.Round(tilt*10) / 10,
 		AC:       &ac,
+		Battery:  bat,
 		Zone:     classifyMovementFull(avg, peak, tilt, angle, lidBase),
 	}
 

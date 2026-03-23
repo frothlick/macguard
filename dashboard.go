@@ -285,7 +285,7 @@ const dashboardHTML = `<!DOCTYPE html>
 </div>
 
 <script>
-const zoneColors = { resting: '#999', desk: '#44bb66', lap: '#3399ff', motion: '#ffaa00', impact: '#ff5500' };
+const zoneColors = { resting: '#999999', desk: '#44bb66', lap: '#3399ff', motion: '#ffaa00', impact: '#ff5500' };
 let map, markers = [], tileLayer;
 const tiles = {
   dark: { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr: '&copy; OpenStreetMap &copy; CARTO' },
@@ -313,16 +313,21 @@ function toggleTheme() {
 function getCSS(v) { return getComputedStyle(document.body).getPropertyValue(v).trim(); }
 
 var gLidAngleBaseline = 0;
-function classifyZone(mag, peak, tilt, lidAngle) {
-  var laThresh = gLidAngleBaseline > 0 ? gLidAngleBaseline + 5 : 115;
-  var notFlat = (tilt || 0) > 2 || (lidAngle > 0 && lidAngle > laThresh);
+function classifyZone(mag, peak, tilt, lidAngle, lidOpen) {
+  var tilted = (tilt || 0) > 2;
   if (mag >= 0.040) return 'impact';
   if (mag >= 0.015) return 'motion';
-  if (mag >= 0.004) return 'lap';
-  if (notFlat && (peak || 0) >= 0.01) return 'lap';
-  if (notFlat && (peak || 0) < 0.01) return 'resting';
-  if (mag >= 0.001) return 'desk';
-  if ((peak || 0) >= 0.01) return 'desk';
+  if (lidOpen) {
+    if (mag >= 0.004 && tilted) return 'lap';
+    if (mag >= 0.004) return 'desk';
+    if (tilted && (peak || 0) >= 0.01) return 'lap';
+    if (mag >= 0.001) return 'desk';
+    if ((peak || 0) >= 0.01) return 'desk';
+  }
+  if (!lidOpen) {
+    if (mag >= 0.004) return 'motion';
+    if ((peak || 0) >= 0.05) return 'motion';
+  }
   return 'resting';
 }
 
@@ -357,6 +362,8 @@ function showCalibDetails() {
 
 async function doCalibrate() {
   document.getElementById('calib-btn').textContent = 'Calibrating...';
+  var bi = document.getElementById('baseline-info');
+  if (bi) { bi.textContent = '---'; bi.style.color = 'var(--dim)'; }
   await fetch('/calibrate', { method: 'POST' });
   setTimeout(function() { document.getElementById('calib-btn').textContent = 'Calibrate'; loadStatus(); showCalibDetails(); }, 3500);
 }
@@ -599,7 +606,7 @@ function sunMarkersForRange(startMin, endMin, date) {
 
 async function loadChart() {
   const navLabel = document.getElementById('nav-label');
-  let labels = [], data = [], peakData = [], lidData = [], tiltData = [], lidAngleData = [], acData = [], segments = [], sunMarks = [];
+  let labels = [], data = [], peakData = [], lidData = [], tiltData = [], lidAngleData = [], acData = [], batData = [], segments = [], sunMarks = [];
 
   if (gran === 'minute') {
     // Rolling 60-minute window ending at cursor
@@ -626,7 +633,8 @@ async function loadChart() {
     tiltData = filtered.map(function(r) { return r.tilt || 0; });
     lidAngleData = filtered.map(function(r) { return r.lidAngle || 0; });
     acData = filtered.map(function(r) { return r.ac; });
-    segments = filtered.map(function(r) { return zoneColors[classifyZone(r.avg, r.peak, r.tilt, r.lidAngle)] || '#999'; });
+    batData = filtered.map(function(r) { return r.bat != null ? r.bat : null; });
+    segments = filtered.map(function(r) { return zoneColors[r.zone || classifyZone(r.avg, r.peak, r.tilt, r.lidAngle, r.lidAngle > 0)] || '#999'; });
     sunMarks = sunMarkersForRange(sMin < eMin ? sMin : sMin, sMin < eMin ? eMin : eMin + 1440, end);
 
   } else if (gran === '24h') {
@@ -641,7 +649,8 @@ async function loadChart() {
     tiltData = records.map(function(r) { return r.tilt || 0; });
     lidAngleData = records.map(function(r) { return r.lidAngle || 0; });
     acData = records.map(function(r) { return r.ac; });
-    segments = records.map(function(r) { return zoneColors[classifyZone(r.avg, r.peak, r.tilt, r.lidAngle)] || '#999'; });
+    batData = records.map(function(r) { return r.bat != null ? r.bat : null; });
+    segments = records.map(function(r) { return zoneColors[r.zone || classifyZone(r.avg, r.peak, r.tilt, r.lidAngle, r.lidAngle > 0)] || '#999'; });
     sunMarks = sunMarkersForRange(0, 1440, cursor);
 
   } else if (gran === 'hour') {
@@ -661,16 +670,17 @@ async function loadChart() {
       var mins = dayCache[d].filter(function(r) { return r.t.startsWith(hourStr + ':'); });
       var avg = mins.length ? mins.reduce(function(s,r) { return s + r.avg; }, 0) / mins.length : 0;
       var pk = mins.length ? mins.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / mins.length : 0;
-      var tl = mins.length ? mins.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / mins.length : 0;
-      var la = mins.length ? mins.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / mins.length : 0;
+      var openMins = mins.filter(function(r) { return r.lid !== false; });
+      var tl = openMins.length ? openMins.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / openMins.length : 0;
+      var la = openMins.length ? openMins.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / openMins.length : 0;
       var lidFrac = mins.length ? mins.filter(function(r) { return r.lid === false; }).length / mins.length : 0;
-      var zone = classifyZone(avg, pk, tl, la);
+      var zone = classifyZone(avg, pk, tl, la, lidFrac < 0.5);
       labels.push(hourStr + ':00');
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
       lidAngleData.push(la);
-      lidData.push(lidFrac);
+      // lidData left empty for aggregated views (no hatch)
       segments.push(zoneColors[zone]);
     }
     var sMinH = ((startH % 24) + 24) % 24 * 60;
@@ -687,26 +697,27 @@ async function loadChart() {
       var mins = records.filter(function(r) { var h = parseInt(r.t.slice(0,2)); return h >= dpStart && h < dpEnd; });
       var avg = mins.length ? mins.reduce(function(s,r) { return s + r.avg; }, 0) / mins.length : 0;
       var pk = mins.length ? mins.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / mins.length : 0;
-      var tl = mins.length ? mins.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / mins.length : 0;
-      var la = mins.length ? mins.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / mins.length : 0;
+      var openMins = mins.filter(function(r) { return r.lid !== false; });
+      var tl = openMins.length ? openMins.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / openMins.length : 0;
+      var la = openMins.length ? openMins.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / openMins.length : 0;
       var lidFrac = mins.length ? mins.filter(function(r) { return r.lid === false; }).length / mins.length : 0;
-      var zone = classifyZone(avg, pk, tl, la);
+      var zone = classifyZone(avg, pk, tl, la, lidFrac < 0.5);
       labels.push(dp);
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
       lidAngleData.push(la);
-      lidData.push(lidFrac);
+      // lidData left empty for aggregated views (no hatch)
       segments.push(zoneColors[zone]);
     });
     sunMarks = sunMarkersForRange(0, 1440, cursor);
 
   } else if (gran === 'day') {
-    var weekStart = addDays(cursor, -(cursor.getDay()+6)%7); // Monday
-    var weekEnd = addDays(weekStart, 6);
+    var weekEnd = new Date(cursor);
+    var weekStart = addDays(weekEnd, -6);
     navLabel.textContent = dateStr(weekStart).slice(5) + ' to ' + dateStr(weekEnd).slice(5);
     var days = await fetchRange(dateStr(weekStart), dateStr(weekEnd));
-    var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
     for (var i = 0; i < 7; i++) {
       var d = addDays(weekStart, i);
       var ds = dateStr(d);
@@ -714,15 +725,16 @@ async function loadChart() {
       var recs = dayData ? dayData.records : [];
       var avg = recs.length ? recs.reduce(function(s,r) { return s + r.avg; }, 0) / recs.length : 0;
       var pk = recs.length ? recs.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / recs.length : 0;
-      var tl = recs.length ? recs.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / recs.length : 0;
-      var la = recs.length ? recs.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / recs.length : 0;
+      var openRecs = recs.filter(function(r) { return r.lid !== false; });
+      var tl = openRecs.length ? openRecs.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / openRecs.length : 0;
+      var la = openRecs.length ? openRecs.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / openRecs.length : 0;
       var lidFrac = recs.length ? recs.filter(function(r) { return r.lid === false; }).length / recs.length : 0;
-      var zone = classifyZone(avg, pk, tl, la);
-      labels.push(dayNames[i] + ' ' + ds.slice(5));
+      var zone = classifyZone(avg, pk, tl, la, lidFrac < 0.5);
+      labels.push(dayNames[d.getDay()] + ' ' + ds.slice(5));
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
-      lidData.push(lidFrac);
+      // lidData left empty for aggregated views (no hatch)
       lidAngleData.push(la);
       segments.push(zoneColors[zone]);
     }
@@ -746,22 +758,23 @@ async function loadChart() {
       });
       var avg = allRecs.length ? allRecs.reduce(function(s,r) { return s + r.avg; }, 0) / allRecs.length : 0;
       var pk = allRecs.length ? allRecs.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / allRecs.length : 0;
-      var tl = allRecs.length ? allRecs.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / allRecs.length : 0;
-      var la = allRecs.length ? allRecs.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / allRecs.length : 0;
+      var openAll = allRecs.filter(function(r) { return r.lid !== false; });
+      var tl = openAll.length ? openAll.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / openAll.length : 0;
+      var la = openAll.length ? openAll.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / openAll.length : 0;
       var lidFrac = allRecs.length ? allRecs.filter(function(r) { return r.lid === false; }).length / allRecs.length : 0;
-      var zone = classifyZone(avg, pk, tl, la);
+      var zone = classifyZone(avg, pk, tl, la, lidFrac < 0.5);
       labels.push('CW' + cw);
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
       lidAngleData.push(la);
-      lidData.push(lidFrac);
+      // lidData left empty for aggregated views (no hatch)
       segments.push(zoneColors[zone]);
       wStart = addDays(wEnd, 1);
     }
   }
 
-  renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, acData, segments, sunMarks);
+  renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, acData, batData, segments, sunMarks);
 }
 
 function labelToMin(lbl) {
@@ -773,7 +786,7 @@ function labelToMin(lbl) {
   return -1;
 }
 
-function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, acData, segColors, sunMarks) {
+function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, acData, batData, segColors, sunMarks) {
   if (chart) chart.destroy();
   var ctx = document.getElementById('chart');
   var labelMins = labels.map(labelToMin);
@@ -904,12 +917,35 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
     });
   }
 
+  var hasBat = batData && batData.some(function(v) { return v != null && v >= 0; });
+  if (hasBat) {
+    datasets.push({
+      label: 'Battery',
+      data: batData,
+      borderColor: '#ff4444',
+      backgroundColor: 'transparent',
+      fill: false,
+      pointRadius: 0,
+      borderWidth: 1,
+      borderDash: [2, 3],
+      tension: 0.3,
+      yAxisID: 'y2'
+    });
+  }
+
   var scales = {
     x: { ticks: { color: getCSS('--dim') }, grid: { color: getCSS('--gridline') } },
     y: { ticks: { color: getCSS('--dim') }, grid: { color: getCSS('--gridline') }, title: { display: true, text: 'avg (g)', color: getCSS('--dim') }, beginAtZero: true, position: 'left' }
   };
   if (hasPeak) {
-    scales.y1 = { ticks: { color: '#ff660088' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'peak (g)', color: '#ff660088' }, beginAtZero: true, position: 'right' };
+    var avgMax = Math.max.apply(null, data);
+    var peakMax = Math.max.apply(null, peakData);
+    var sharedMax = Math.max(avgMax, peakMax) * 1.1;
+    scales.y.suggestedMax = sharedMax;
+    scales.y1 = { ticks: { color: '#ff660088' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'peak (g)', color: '#ff660088' }, beginAtZero: true, position: 'right', suggestedMax: sharedMax };
+  }
+  if (hasBat) {
+    scales.y2 = { ticks: { color: '#ff444466', callback: function(v) { return v + '%'; } }, grid: { drawOnChartArea: false }, min: 0, max: 100, display: false };
   }
 
   chart = new Chart(ctx, {
@@ -918,7 +954,7 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
     options: {
       responsive: true,
       layout: { padding: { top: 16 } },
-      plugins: { legend: { display: hasPeak, labels: { color: getCSS('--text'), font: { size: 12 }, usePointStyle: true, pointStyleWidth: 40, generateLabels: function(chart) {
+      plugins: { legend: { display: hasPeak || hasBat, labels: { color: getCSS('--text'), font: { size: 12 }, usePointStyle: true, pointStyleWidth: 40, generateLabels: function(chart) {
         var avgIcon = document.createElement('canvas'); avgIcon.width = 40; avgIcon.height = 14;
         var ac = avgIcon.getContext('2d'); ac.strokeStyle = '#888'; ac.lineWidth = 2;
         ac.beginPath(); ac.moveTo(0, 7); ac.lineTo(40, 7); ac.stroke();
@@ -926,13 +962,17 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
         var pkIcon = document.createElement('canvas'); pkIcon.width = 40; pkIcon.height = 14;
         var pc = pkIcon.getContext('2d'); pc.strokeStyle = '#ff6600'; pc.lineWidth = 2;
         pc.setLineDash([6, 3]); pc.beginPath(); pc.moveTo(0, 7); pc.lineTo(40, 7); pc.stroke();
+        var batIcon = document.createElement('canvas'); batIcon.width = 40; batIcon.height = 14;
+        var bc = batIcon.getContext('2d'); bc.strokeStyle = '#ff4444'; bc.lineWidth = 1;
+        bc.setLineDash([2, 3]); bc.beginPath(); bc.moveTo(0, 7); bc.lineTo(40, 7); bc.stroke();
         var lidIcon = document.createElement('canvas'); lidIcon.width = 40; lidIcon.height = 14;
         var lc = lidIcon.getContext('2d');
         lc.fillStyle = '#88888822'; lc.fillRect(0, 0, 40, 14);
         lc.strokeStyle = '#88888866'; lc.lineWidth = 1;
         for (var k = -14; k < 40; k += 6) { lc.beginPath(); lc.moveTo(k, 14); lc.lineTo(k + 14, 0); lc.stroke(); }
-        var items = chart.data.datasets.map(function(ds, i) { return { text: ds.label, fontColor: getCSS('--text'), strokeStyle: 'transparent', fillStyle: 'transparent', pointStyle: i === 0 ? avgIcon : pkIcon, hidden: !chart.isDatasetVisible(i), datasetIndex: i }; });
-        if (lidData && lidData.some(function(v) { return v === false; })) {
+        var dsIcons = [avgIcon, pkIcon, batIcon];
+        var items = chart.data.datasets.map(function(ds, i) { return { text: ds.label, fontColor: getCSS('--text'), strokeStyle: 'transparent', fillStyle: 'transparent', pointStyle: dsIcons[i] || avgIcon, hidden: !chart.isDatasetVisible(i), datasetIndex: i }; });
+        if (lidData && lidData.some(function(v) { return v === false || (typeof v === 'number' && v > 0); })) {
           items.push({ text: 'Lid closed', fontColor: getCSS('--text'), strokeStyle: 'transparent', fillStyle: 'transparent', pointStyle: lidIcon, hidden: false });
         }
         return items;
@@ -940,16 +980,24 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
       tooltip: { callbacks: { title: function(ctx) { return ctx[0].label; }, label: function(ctx) {
         var i = ctx.dataIndex;
         if (ctx.datasetIndex === 1) return 'Peak: ' + ctx.parsed.y.toFixed(4) + 'g';
+        if (ctx.datasetIndex === 2) return 'Battery: ' + ctx.parsed.y + '%';
         var lines = ['Avg: ' + ctx.parsed.y.toFixed(4) + 'g'];
         if (peakData && peakData[i]) lines.push('Peak: ' + peakData[i].toFixed(4) + 'g');
         if (tiltData && tiltData[i] != null) lines.push('Tilt: ' + tiltData[i].toFixed(1) + '\u00b0');
         if (lidAngleData && lidAngleData[i]) lines.push('Lid angle: ' + lidAngleData[i].toFixed(0) + '\u00b0');
-        if (lidData) {
+        if (lidData && lidData.length) {
           var lv = lidData[i];
-          var lidStr = lv === false ? 'closed' : lv === true ? 'open' : typeof lv === 'number' && lv > 0 ? Math.round(lv * 100) + '% closed' : 'n/a';
-          lines.push('Lid: ' + lidStr);
+          if (lv === false) lines.push('Lid: closed');
+          else if (lv === true) lines.push('Lid: open');
         }
-        if (acData) lines.push('AC: ' + (acData[i] === true ? 'connected' : acData[i] === false ? 'battery' : 'n/a'));
+        if (acData && acData.length) {
+          var acOn = acData[i] === true;
+          var batPct = (batData && batData[i] != null && batData[i] >= 0) ? batData[i] + '%' : '';
+          if (acOn && batPct) lines.push('AC connected, ' + (batData[i] < 100 ? 'charging ' : '') + batPct);
+          else if (acOn) lines.push('AC connected');
+          else if (batPct) lines.push('Battery ' + batPct);
+          else lines.push('Battery');
+        }
         return lines;
       } } } },
       scales: scales
