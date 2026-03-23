@@ -70,7 +70,7 @@ const dashboardHTML = `<!DOCTYPE html>
 </div>
 
 <div id="settings-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000; justify-content:center; align-items:center">
-  <div class="card" style="width:520px; max-width:92vw; max-height:85vh; overflow-y:auto; position:relative; padding:24px">
+  <div class="card" style="width:520px; max-width:92vw; height:480px; position:relative; padding:24px; display:flex; flex-direction:column">
     <button onclick="closeSettings()" style="position:absolute; top:12px; right:16px; background:none; border:none; color:var(--muted); font-size:1.4em; cursor:pointer">&times;</button>
     <h2 style="margin-bottom:16px; font-size:0.95em">Settings</h2>
 
@@ -82,6 +82,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <button onclick="setSettingsTab('about')" id="tab-about" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">About</button>
     </div>
 
+    <div style="flex:1; overflow-y:auto; min-height:0">
     <div id="tab-content-general">
       <div style="margin-bottom:20px">
         <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Default Arm Delay</label>
@@ -219,7 +220,8 @@ const dashboardHTML = `<!DOCTYPE html>
       <div style="font-size:0.72em; color:var(--dim)">v0.3.0</div>
     </div>
 
-    <button class="btn btn-disarm" onclick="saveSettingsUI()" style="width:100%; padding:10px">Save</button>
+    </div>
+    <button class="btn btn-disarm" onclick="saveSettingsUI()" style="width:100%; padding:10px; flex-shrink:0; margin-top:12px">Save</button>
     <div id="settings-msg" style="text-align:center; font-size:0.82em; margin-top:10px; color:var(--accent)"></div>
   </div>
 </div>
