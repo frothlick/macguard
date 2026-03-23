@@ -86,6 +86,7 @@ type GuardState struct {
 	AlarmEnabled      bool
 	AlarmSound        string        // movement alarm sound name
 	GeoAlarmSound     string        // geo-fence alarm sound name
+	ACAlarmSound      string        // AC disconnect alarm sound name
 	ACDisconnectAlarm bool          // play alarm on AC disconnect
 	alarmStop         chan struct{} // signal to stop alarm loop
 
@@ -110,6 +111,7 @@ type UserSettings struct {
 	AlarmEnabled      bool   `json:"alarmEnabled"`
 	AlarmSound        string `json:"alarmSound"`
 	GeoAlarmSound     string `json:"geoAlarmSound"`
+	ACAlarmSound      string `json:"acAlarmSound"`
 	ACDisconnectAlarm bool   `json:"acDisconnectAlarm"`
 }
 
@@ -123,6 +125,7 @@ func loadSettings(guard *GuardState) {
 		// Defaults
 		guard.NotifyTelegram = true
 		guard.NotifyEmailFlag = guard.SMTPHost != "" && guard.NotifyEmail != ""
+		guard.AlarmEnabled = true
 		return
 	}
 	var s UserSettings
@@ -151,6 +154,8 @@ func loadSettings(guard *GuardState) {
 		guard.AlarmEnabled = s.AlarmEnabled
 		guard.AlarmSound = s.AlarmSound
 		guard.GeoAlarmSound = s.GeoAlarmSound
+		guard.ACAlarmSound = s.ACAlarmSound
+		guard.ACAlarmSound = s.ACAlarmSound
 		guard.ACDisconnectAlarm = s.ACDisconnectAlarm
 	}
 }
@@ -172,6 +177,7 @@ func saveSettings(guard *GuardState) {
 		AlarmEnabled:      guard.AlarmEnabled,
 		AlarmSound:        guard.AlarmSound,
 		GeoAlarmSound:     guard.GeoAlarmSound,
+		ACAlarmSound:      guard.ACAlarmSound,
 		ACDisconnectAlarm: guard.ACDisconnectAlarm,
 	}
 	guard.mu.Unlock()
@@ -586,9 +592,9 @@ func monitorLoop(ctx context.Context, guard *GuardState, ring *shm.RingBuffer) {
 			token := guard.Token
 			chatID := guard.ChatID
 			wantACAlarm := guard.AlarmEnabled && guard.ACDisconnectAlarm
-			acSound := guard.AlarmSound
+			acSound := guard.ACAlarmSound
 			if acSound == "" {
-				acSound = "Sosumi"
+				acSound = "Funk"
 			}
 			guard.mu.Unlock()
 			go sendTelegramMessage(token, chatID, "*AC power disconnected!* Charger was unplugged while armed.")
@@ -824,7 +830,8 @@ func startHTTPServer(guard *GuardState, port int) {
 			AlarmEnabled:      guard.AlarmEnabled,
 			AlarmSound:        guard.AlarmSound,
 			GeoAlarmSound:     guard.GeoAlarmSound,
-			ACDisconnectAlarm: guard.ACDisconnectAlarm,
+			ACAlarmSound:      guard.ACAlarmSound,
+		ACDisconnectAlarm: guard.ACDisconnectAlarm,
 		}
 		guard.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -855,6 +862,7 @@ func startHTTPServer(guard *GuardState, port int) {
 		guard.AlarmEnabled = s.AlarmEnabled
 		guard.AlarmSound = s.AlarmSound
 		guard.GeoAlarmSound = s.GeoAlarmSound
+		guard.ACAlarmSound = s.ACAlarmSound
 		guard.ACDisconnectAlarm = s.ACDisconnectAlarm
 		guard.mu.Unlock()
 		saveSettings(guard)
@@ -1034,7 +1042,7 @@ func startHTTPServer(guard *GuardState, port int) {
 	mux.HandleFunc("POST /alarm/test", func(w http.ResponseWriter, r *http.Request) {
 		sound := r.URL.Query().Get("sound")
 		if sound == "" {
-			sound = "Sosumi"
+			sound = "Siren"
 		}
 		// Sanitize: only allow alphanumeric sound names
 		for _, c := range sound {
@@ -1043,7 +1051,7 @@ func startHTTPServer(guard *GuardState, port int) {
 				return
 			}
 		}
-		go exec.Command("launchctl", "asuser", "501", "afplay", "/System/Library/Sounds/"+sound+".aiff").Run()
+		go exec.Command("launchctl", "asuser", "501", "afplay", alarmSoundPath(sound)).Run()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "playing", "sound": sound})
 	})

@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/smtp"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -305,7 +307,7 @@ func sendAlert(guard *GuardState, token string, chatID int64, mag float64) {
 		guard.mu.Unlock()
 		if alarmEnabled {
 			if alarmSound == "" {
-				alarmSound = "Sosumi"
+				alarmSound = "Siren"
 			}
 			playAlarm(guard, alarmSound)
 		}
@@ -392,9 +394,25 @@ func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	return R * c
 }
 
+var customAlarmSounds = map[string]bool{
+	"Siren": true, "Klaxon": true, "Alert": true, "Intruder": true, "Evacuation": true,
+}
+
+func alarmSoundPath(sound string) string {
+	if sound == "" {
+		sound = "Siren"
+	}
+	if customAlarmSounds[sound] {
+		dir := filepath.Dir(os.Args[0])
+		return filepath.Join(dir, "sounds", sound+".aiff")
+	}
+	// Apple system sound
+	return "/System/Library/Sounds/" + sound + ".aiff"
+}
+
 func playAlarm(guard *GuardState, sound string) {
 	if sound == "" {
-		sound = "Sosumi"
+		sound = "Siren"
 	}
 	stop := make(chan struct{})
 	guard.mu.Lock()
@@ -405,6 +423,7 @@ func playAlarm(guard *GuardState, sound string) {
 	guard.alarmStop = stop
 	guard.mu.Unlock()
 
+	soundPath := alarmSoundPath(sound)
 	go func() {
 		for {
 			select {
@@ -412,12 +431,12 @@ func playAlarm(guard *GuardState, sound string) {
 				return
 			default:
 			}
-			cmd := exec.Command("launchctl", "asuser", "501", "afplay", "/System/Library/Sounds/"+sound+".aiff")
+			cmd := exec.Command("launchctl", "asuser", "501", "afplay", soundPath)
 			cmd.Run()
 			select {
 			case <-stop:
 				return
-			case <-time.After(1500 * time.Millisecond):
+			case <-time.After(500 * time.Millisecond):
 			}
 		}
 	}()
@@ -480,7 +499,7 @@ func checkGeoFence(guard *GuardState, token string, chatID int64, anchorLat, anc
 	// Play geo-fence alarm sound
 	if alarmEnabled {
 		if geoAlarmSound == "" {
-			geoAlarmSound = "Submarine"
+			geoAlarmSound = "Intruder"
 		}
 		playAlarm(guard, geoAlarmSound)
 	}

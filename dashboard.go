@@ -170,7 +170,7 @@ const dashboardHTML = `<!DOCTYPE html>
         <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Movement Alarm Sound</label>
         <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
           <select id="set-alarm-sound" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:8px 12px; font-size:0.9em; flex:1">
-            <option value="Basso">Basso</option><option value="Blow">Blow</option><option value="Bottle">Bottle</option><option value="Frog">Frog</option><option value="Funk">Funk</option><option value="Glass">Glass</option><option value="Hero">Hero</option><option value="Morse">Morse</option><option value="Ping">Ping</option><option value="Pop">Pop</option><option value="Purr">Purr</option><option value="Sosumi" selected>Sosumi</option><option value="Submarine">Submarine</option><option value="Tink">Tink</option>
+            <option value="Siren" selected>Siren</option><option value="Klaxon">Klaxon</option><option value="Alert">Alert</option><option value="Intruder">Intruder</option><option value="Evacuation">Evacuation</option>
           </select>
           <button class="btn btn-loc" onclick="testAlarmSound('set-alarm-sound')" style="font-size:0.82em; padding:8px 12px; white-space:nowrap">Preview</button>
         </div>
@@ -180,7 +180,7 @@ const dashboardHTML = `<!DOCTYPE html>
         <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Geo-Fence Alarm Sound</label>
         <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
           <select id="set-geo-alarm-sound" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:8px 12px; font-size:0.9em; flex:1">
-            <option value="Basso">Basso</option><option value="Blow">Blow</option><option value="Bottle">Bottle</option><option value="Frog">Frog</option><option value="Funk">Funk</option><option value="Glass">Glass</option><option value="Hero">Hero</option><option value="Morse">Morse</option><option value="Ping">Ping</option><option value="Pop">Pop</option><option value="Purr">Purr</option><option value="Sosumi">Sosumi</option><option value="Submarine" selected>Submarine</option><option value="Tink">Tink</option>
+            <option value="Siren">Siren</option><option value="Klaxon">Klaxon</option><option value="Alert">Alert</option><option value="Intruder" selected>Intruder</option><option value="Evacuation">Evacuation</option>
           </select>
           <button class="btn btn-loc" onclick="testAlarmSound('set-geo-alarm-sound')" style="font-size:0.82em; padding:8px 12px; white-space:nowrap">Preview</button>
         </div>
@@ -191,7 +191,18 @@ const dashboardHTML = `<!DOCTYPE html>
           <input type="checkbox" id="set-ac-alarm" style="width:18px; height:18px">
           <span style="font-size:0.92em; font-weight:500">Alarm on AC disconnect</span>
         </label>
-        <span style="font-size:0.72em; color:var(--dim); margin-left:28px">Play alarm when the charger is unplugged while armed</span>
+        <span style="font-size:0.72em; color:var(--dim); margin-left:28px">Play sound when the charger is unplugged while armed</span>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">AC Disconnect Sound</label>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
+          <select id="set-ac-alarm-sound" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:8px 12px; font-size:0.9em; flex:1">
+            <option value="Funk" selected>Funk</option><option value="Basso">Basso</option><option value="Blow">Blow</option><option value="Bottle">Bottle</option><option value="Frog">Frog</option><option value="Glass">Glass</option><option value="Hero">Hero</option><option value="Morse">Morse</option><option value="Ping">Ping</option><option value="Pop">Pop</option><option value="Purr">Purr</option><option value="Sosumi">Sosumi</option><option value="Submarine">Submarine</option><option value="Tink">Tink</option>
+            <option value="Siren">Siren</option><option value="Klaxon">Klaxon</option><option value="Alert">Alert</option><option value="Intruder">Intruder</option><option value="Evacuation">Evacuation</option>
+          </select>
+          <button class="btn btn-loc" onclick="testAlarmSound('set-ac-alarm-sound')" style="font-size:0.82em; padding:8px 12px; white-space:nowrap">Preview</button>
+        </div>
       </div>
     </div>
 
@@ -205,7 +216,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <div style="margin-bottom:20px">
         <a href="https://github.com/frothlick/macguard" target="_blank" style="font-size:0.85em; color:var(--accent); text-decoration:none">github.com/frothlick/macguard</a>
       </div>
-      <div style="font-size:0.72em; color:var(--dim)">v0.2.0</div>
+      <div style="font-size:0.72em; color:var(--dim)">v0.3.0</div>
     </div>
 
     <button class="btn btn-disarm" onclick="saveSettingsUI()" style="width:100%; padding:10px">Save</button>
@@ -1042,9 +1053,10 @@ async function openSettings() {
     document.getElementById('set-smtp-user').value = s.smtpUser || '';
     document.getElementById('set-smtp-pass').value = '';
     document.getElementById('set-alarm-enabled').checked = s.alarmEnabled || false;
-    document.getElementById('set-alarm-sound').value = s.alarmSound || 'Sosumi';
-    document.getElementById('set-geo-alarm-sound').value = s.geoAlarmSound || 'Submarine';
+    document.getElementById('set-alarm-sound').value = s.alarmSound || 'Siren';
+    document.getElementById('set-geo-alarm-sound').value = s.geoAlarmSound || 'Intruder';
     document.getElementById('set-ac-alarm').checked = s.acDisconnectAlarm || false;
+    document.getElementById('set-ac-alarm-sound').value = s.acAlarmSound || 'Funk';
     var calBtn = document.querySelector('#settings-overlay #calib-btn');
     if (calBtn) calBtn.textContent = 'Calibrate';
     var bi = document.querySelector('#settings-overlay #baseline-info');
@@ -1075,6 +1087,7 @@ async function saveSettingsUI() {
     alarmEnabled: document.getElementById('set-alarm-enabled').checked,
     alarmSound: document.getElementById('set-alarm-sound').value,
     geoAlarmSound: document.getElementById('set-geo-alarm-sound').value,
+    acAlarmSound: document.getElementById('set-ac-alarm-sound').value,
     acDisconnectAlarm: document.getElementById('set-ac-alarm').checked
   };
   try {
