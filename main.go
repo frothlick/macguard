@@ -1056,6 +1056,11 @@ func startHTTPServer(guard *GuardState, port int) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "playing", "sound": sound})
 	})
 
+	mux.HandleFunc("GET /logo.png", func(w http.ResponseWriter, r *http.Request) {
+		logoPath := filepath.Join(filepath.Dir(os.Args[0]), "logo.png")
+		http.ServeFile(w, r, logoPath)
+	})
+
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)

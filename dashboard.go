@@ -5,7 +5,7 @@ const dashboardHTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>macguard</title>
+<title>MacGuard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9/dist/leaflet.js"></script>
@@ -14,13 +14,15 @@ const dashboardHTML = `<!DOCTYPE html>
   :root { --bg: #0a0a0a; --card: #141414; --border: #222; --text: #e0e0e0; --muted: #888; --dim: #555; --gridline: #2a2a2a; --accent: #00ffaa; --picker-bg: #222; --picker-border: #333; }
   body.light { --bg: #f5f5f5; --card: #fff; --border: #ddd; --text: #222; --muted: #666; --dim: #999; --gridline: #eee; --accent: #00aa77; --picker-bg: #eee; --picker-border: #ccc; }
   body { background: var(--bg); color: var(--text); font-family: -apple-system, system-ui, sans-serif; padding: 20px; transition: background 0.3s, color 0.3s; }
-  .header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
-  .header-left h1 { color: var(--accent); font-size: 1.6em; margin-bottom: 4px; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-left img { height: 48px; width: 48px; object-fit: contain; }
+  .header-left h1 { color: var(--accent); font-size: 1.6em; margin-bottom: 0; }
   .header-left .subtitle { color: var(--muted); font-size: 0.85em; }
   .theme-toggle { background: var(--picker-bg); border: 1px solid var(--picker-border); color: var(--muted); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 0.85em; }
   .theme-toggle:hover { filter: brightness(1.2); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .card.full { grid-column: 1 / -1; }
   .card h2 { color: var(--muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
@@ -52,7 +54,7 @@ const dashboardHTML = `<!DOCTYPE html>
   .z-lap::before { background: #3399ff; }
   .z-motion::before { background: #ffaa00; }
   .z-impact::before { background: #ff5500; }
-  #map { height: 300px; border-radius: 8px; }
+  #map { height: 100%; min-height: 200px; border-radius: 8px; }
   .loc-info { color: var(--muted); font-size: 0.85em; margin-top: 8px; }
   @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } .grid3 { grid-template-columns: 1fr; } }
 </style>
@@ -60,8 +62,11 @@ const dashboardHTML = `<!DOCTYPE html>
 <body>
 <div class="header">
   <div class="header-left">
-    <h1>macguard move</h1>
-    <span class="subtitle">by alexander@wipf.com</span>
+    <img src="/logo.png" alt="MacGuard">
+    <div>
+      <h1>MacGuard</h1>
+      <span class="subtitle">by alexander@wipf.com</span>
+    </div>
   </div>
   <div style="display:flex; gap:8px; align-items:center">
     <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">Light</button>
@@ -227,39 +232,33 @@ const dashboardHTML = `<!DOCTYPE html>
 </div>
 
 <div class="grid3">
-  <div class="card" id="card-local" style="transition: opacity 0.3s">
-    <h2>Local Guard</h2>
-    <div style="font-size:0.82em; color:var(--muted); margin-bottom:10px">Alerts when your Mac is physically moved</div>
+  <div class="card" id="card-guard" style="transition: opacity 0.3s">
+    <h2>Arm Status</h2>
+    <div style="font-size:0.82em; color:var(--muted); margin-bottom:10px">Arm to send alerts when your Mac is physically moved</div>
     <div id="local-status"></div>
     <div id="local-controls" class="controls" style="margin-top:10px"></div>
-  </div>
-  <div class="card" id="card-geo" style="transition: opacity 0.3s">
-    <h2>Geo Guard</h2>
-    <div style="font-size:0.82em; color:var(--muted); margin-bottom:10px">Alerts if your Mac leaves this location</div>
+    <div style="border-top:1px solid #333; margin:14px 0"></div>
+    <div style="font-size:0.82em; color:var(--muted); margin-bottom:10px">Arm to send alerts when your Mac leaves this location</div>
     <div id="geo-status"></div>
     <div id="geo-controls" class="controls" style="margin-top:10px"></div>
   </div>
   <div class="card">
-    <h2>Current Magnitude</h2>
+    <h2>Map</h2>
+    <div id="map"></div>
+  </div>
+  <div class="card">
+    <h2>Live Data</h2>
     <div class="stat" id="magnitude">...</div>
     <div id="zone-label" style="color:var(--muted); font-size:0.85em; margin-top:4px"></div>
     <div id="mag-baseline-info" style="font-size:0.72em; color:var(--dim); margin-top:4px"></div>
     <div id="ac-status" style="font-size:0.78em; margin-top:6px"></div>
-  </div>
-  <div class="card">
+    <div style="border-top:1px solid #333; margin:14px 0"></div>
     <h2>Location</h2>
     <div id="loc-current" class="loc-info">...</div>
     <div class="controls">
       <button class="btn btn-loc" onclick="refreshLocation()">Refresh</button>
     </div>
     <div id="loc-recent" style="margin-top:8px; border-top:1px solid #222; padding-top:6px; font-size:0.78em; color:#777; max-height:90px; overflow-y:auto"></div>
-  </div>
-</div>
-
-<div class="grid">
-  <div class="card full">
-    <h2>Map</h2>
-    <div id="map"></div>
   </div>
 </div>
 
@@ -405,34 +404,32 @@ async function loadStatus() {
   try {
     const r = await fetch('/status');
     const d = await r.json();
-    // Local Guard card
-    var localCard = document.getElementById('card-local');
+    // Local Guard
     var localStatus = document.getElementById('local-status');
     var localCtrl = document.getElementById('local-controls');
     if (d.local.status === 'armed') {
       localStatus.innerHTML = '<span class="status-badge status-armed">ARMED</span>' + (d.moving ? ' <span style="color:#ff5500; font-weight:700">MOVING</span>' : '');
-      localCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'move\')" style="flex:1">Disarm</button>';
+      localCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'move\')" style="flex:1">Local Disarm</button>';
     } else if (d.local.status === 'arming') {
       localStatus.innerHTML = '<span class="status-badge status-armed">ARMING ' + d.local.delay + 's</span>';
       localCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'move\')" style="flex:1">Cancel</button>';
     } else {
       localStatus.innerHTML = '';
-      localCtrl.innerHTML = '<button class="btn btn-arm" onclick="doArm(\'move\')" style="flex:1">Arm</button>';
+      localCtrl.innerHTML = '<button class="btn btn-arm" onclick="doArm(\'move\')" style="flex:1">Local Arm</button>';
     }
 
-    // Geo Guard card
-    var geoCard = document.getElementById('card-geo');
+    // Geo Guard
     var geoStatus = document.getElementById('geo-status');
     var geoCtrl = document.getElementById('geo-controls');
     if (d.geo.status === 'armed') {
       geoStatus.innerHTML = '<span class="status-badge status-armed">ARMED</span>' + (d.moving ? ' <span style="color:#ff5500; font-weight:700">MOVING</span>' : '');
-      geoCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'geo\')" style="flex:1">Disarm</button>';
+      geoCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'geo\')" style="flex:1">Geo Disarm</button>';
     } else if (d.geo.status === 'arming') {
       geoStatus.innerHTML = '<span class="status-badge status-armed">ARMING ' + d.geo.delay + 's</span>';
       geoCtrl.innerHTML = '<button class="btn btn-disarm" onclick="doDisarm(\'geo\')" style="flex:1">Cancel</button>';
     } else {
       geoStatus.innerHTML = '';
-      geoCtrl.innerHTML = '<button class="btn btn-arm" onclick="doArm(\'geo\')" style="flex:1">Arm</button>';
+      geoCtrl.innerHTML = '<button class="btn btn-arm" onclick="doArm(\'geo\')" style="flex:1">Geo Arm</button>';
     }
 
     const mag = d.magnitude || 0;
@@ -1163,7 +1160,10 @@ async function checkTrainingStatus() {
 }
 
 // --- Init ---
-map = L.map('map', { zoomControl: true }).setView([48.22, 9.01], 13);
+map = L.map('map', { zoomControl: true, scrollWheelZoom: false }).setView([48.22, 9.01], 13);
+document.getElementById('map').addEventListener('wheel', function(e) {
+  if (e.ctrlKey || e.metaKey) { map.scrollWheelZoom.enable(); setTimeout(function() { map.scrollWheelZoom.disable(); }, 500); }
+}, { passive: true });
 const initTile = isDark ? tiles.dark : tiles.light;
 tileLayer = L.tileLayer(initTile.url, { attribution: initTile.attr, maxZoom: 19 }).addTo(map);
 applyTheme();
