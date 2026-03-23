@@ -18,6 +18,7 @@ type MovementRecord struct {
 	Lid      *bool   `json:"lid,omitempty"`
 	LidAngle float64 `json:"lidAngle"`
 	Tilt     float64 `json:"tilt"`
+	AC       *bool   `json:"ac,omitempty"`
 	Zone     string  `json:"zone"`
 }
 
@@ -33,12 +34,21 @@ type TrainingRecord struct {
 	Lid      *bool   `json:"lid,omitempty"`
 	LidAngle float64 `json:"lidAngle"`
 	Tilt     float64 `json:"tilt"`
+	AC       *bool   `json:"ac,omitempty"`
 	Zone     string  `json:"zone"`
 }
 
 type TrainingSession struct {
 	Start   string           `json:"start"`
 	Records []TrainingRecord `json:"records"`
+}
+
+func isOnAC() bool {
+	out, err := exec.Command("pmset", "-g", "ps").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "'AC Power'")
 }
 
 func isLidOpen() bool {
@@ -90,10 +100,12 @@ func appendTrainingRecord(guard *GuardState) {
 	guard.SecTiltN = 0
 	guard.SecondStart = time.Now().Truncate(time.Second)
 	filePath := guard.TrainingFile
+	lidBase := guard.LidAngleBaseline
 	guard.mu.Unlock()
 
 	lid := isLidOpen()
 	angle := getLidAngle()
+	ac := isOnAC()
 	rec := TrainingRecord{
 		Time:     time.Now().Format("15:04:05"),
 		AvgMag:   avg,
@@ -101,7 +113,8 @@ func appendTrainingRecord(guard *GuardState) {
 		Lid:      &lid,
 		LidAngle: angle,
 		Tilt:     math.Round(tilt*10) / 10,
-		Zone:     classifyMovementFull(avg, peak, tilt),
+		AC:       &ac,
+		Zone:     classifyMovementFull(avg, peak, tilt, angle, lidBase),
 	}
 
 	var session TrainingSession
@@ -130,26 +143,49 @@ func moveLogPath(date string) string {
 }
 
 func classifyMovement(avg float64) string {
-	return classifyMovementFull(avg, 0, 0)
+	return classifyMovementFull(avg, 0, 0, 0, 0)
 }
 
-func classifyMovementFull(avg, peak, tilt float64) string {
+func classifyMovementFull(avg, peak, tilt, lidAngle, lidAngleBaseline float64) string {
+	tilted := tilt > 2
+	lidOpen := lidAngle > 0 // lidAngle=0 means closed
+
+	// High energy events don't require lid open (transport/drop)
 	switch {
 	case avg >= 0.040:
 		return "impact"
 	case avg >= 0.015:
 		return "motion"
-	case avg >= 0.004:
-		return "lap"
-	case tilt > 15 && peak >= 0.01:
-		return "lap"
-	case avg >= 0.001:
-		return "desk"
-	case peak >= 0.01:
-		return "desk"
-	default:
+	}
+
+	// "desk" and "lap" are use zones — require lid open
+	if lidOpen {
+		switch {
+		case avg >= 0.004 && tilted:
+			return "lap"
+		case avg >= 0.004:
+			return "desk"
+		case tilted && peak >= 0.01:
+			return "lap"
+		case avg >= 0.001:
+			return "desk"
+		case peak >= 0.01:
+			return "desk"
+		}
+	}
+
+	// Lid closed: resting unless significant movement (transport)
+	if !lidOpen {
+		switch {
+		case avg >= 0.004:
+			return "motion"
+		case peak >= 0.05:
+			return "motion"
+		}
 		return "resting"
 	}
+
+	return "resting"
 }
 
 type LocationRecord struct {
@@ -235,10 +271,12 @@ func appendMovementRecord(guard *GuardState) {
 	guard.TiltSum = 0
 	guard.TiltSamples = 0
 	guard.MinuteStart = time.Now().Truncate(time.Minute)
+	lidBase := guard.LidAngleBaseline
 	guard.mu.Unlock()
 
 	lid := isLidOpen()
 	angle := getLidAngle()
+	ac := isOnAC()
 	now := time.Now()
 	date := now.Format("2006-01-02")
 	rec := MovementRecord{
@@ -248,7 +286,8 @@ func appendMovementRecord(guard *GuardState) {
 		Lid:      &lid,
 		LidAngle: angle,
 		Tilt:     math.Round(tilt*10) / 10,
-		Zone:     classifyMovementFull(avg, peak, tilt),
+		AC:       &ac,
+		Zone:     classifyMovementFull(avg, peak, tilt, angle, lidBase),
 	}
 
 	path := moveLogPath(date)

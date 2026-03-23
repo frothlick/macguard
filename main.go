@@ -35,15 +35,17 @@ type GuardState struct {
 	Moving    bool
 	MagEWMA   float64
 	LastAlert time.Time
+	LastACState bool // track AC state for disconnect detection
 
 	// Geo-fence
 	AnchorLat float64
 	AnchorLon float64
 
 	// Calibration
-	MagBaseline   float64 // noise floor to subtract
-	TiltBaseline  float64 // tilt offset on flat surface
-	Calibrating   bool
+	MagBaseline      float64 // noise floor to subtract
+	TiltBaseline     float64 // tilt offset on flat surface
+	LidAngleBaseline float64 // lid angle on desk (for lap detection)
+	Calibrating      bool
 	CalibSamples  int
 	CalibSum      float64
 	CalibTiltSum  float64
@@ -80,6 +82,13 @@ type GuardState struct {
 	SMTPPass    string
 	NotifyEmail string
 
+	// Alarm
+	AlarmEnabled      bool
+	AlarmSound        string        // movement alarm sound name
+	GeoAlarmSound     string        // geo-fence alarm sound name
+	ACDisconnectAlarm bool          // play alarm on AC disconnect
+	alarmStop         chan struct{} // signal to stop alarm loop
+
 	// User settings (persisted)
 	DefaultDelay    int  // default arm delay in seconds
 	NotifyTelegram  bool // send alerts via Telegram
@@ -94,9 +103,14 @@ type UserSettings struct {
 	SMTPHost       string  `json:"smtpHost"`
 	SMTPUser       string  `json:"smtpUser"`
 	SMTPPass       string  `json:"smtpPass"`
-	Baseline       float64 `json:"baseline"`
-	TiltBaseline   float64 `json:"tiltBaseline"`
-	TelegramChatID int64   `json:"telegramChatId,omitempty"`
+	Baseline         float64 `json:"baseline"`
+	TiltBaseline     float64 `json:"tiltBaseline"`
+	LidAngleBaseline float64 `json:"lidAngleBaseline"`
+	TelegramChatID   int64   `json:"telegramChatId,omitempty"`
+	AlarmEnabled      bool   `json:"alarmEnabled"`
+	AlarmSound        string `json:"alarmSound"`
+	GeoAlarmSound     string `json:"geoAlarmSound"`
+	ACDisconnectAlarm bool   `json:"acDisconnectAlarm"`
 }
 
 func settingsPath() string {
@@ -121,6 +135,7 @@ func loadSettings(guard *GuardState) {
 		}
 		guard.MagBaseline = s.Baseline
 		guard.TiltBaseline = s.TiltBaseline
+		guard.LidAngleBaseline = s.LidAngleBaseline
 		if s.TelegramChatID != 0 {
 			guard.ChatID = s.TelegramChatID
 		}
@@ -133,6 +148,10 @@ func loadSettings(guard *GuardState) {
 		if s.SMTPPass != "" {
 			guard.SMTPPass = s.SMTPPass
 		}
+		guard.AlarmEnabled = s.AlarmEnabled
+		guard.AlarmSound = s.AlarmSound
+		guard.GeoAlarmSound = s.GeoAlarmSound
+		guard.ACDisconnectAlarm = s.ACDisconnectAlarm
 	}
 }
 
@@ -146,9 +165,14 @@ func saveSettings(guard *GuardState) {
 		SMTPHost:       guard.SMTPHost,
 		SMTPUser:       guard.SMTPUser,
 		SMTPPass:       guard.SMTPPass,
-		Baseline:       guard.MagBaseline,
-		TiltBaseline:   guard.TiltBaseline,
-		TelegramChatID: guard.ChatID,
+		Baseline:         guard.MagBaseline,
+		TiltBaseline:     guard.TiltBaseline,
+		LidAngleBaseline: guard.LidAngleBaseline,
+		TelegramChatID:   guard.ChatID,
+		AlarmEnabled:      guard.AlarmEnabled,
+		AlarmSound:        guard.AlarmSound,
+		GeoAlarmSound:     guard.GeoAlarmSound,
+		ACDisconnectAlarm: guard.ACDisconnectAlarm,
 	}
 	guard.mu.Unlock()
 	data, err := json.Marshal(s)
@@ -170,8 +194,10 @@ type StatusResponse struct {
 	Geo         ModeStatus   `json:"geo"`
 	Moving      bool         `json:"moving,omitempty"`
 	Magnitude   float64      `json:"magnitude,omitempty"`
-	Baseline    float64      `json:"baseline"`
-	Calibrating bool         `json:"calibrating,omitempty"`
+	Baseline         float64 `json:"baseline"`
+	LidAngleBaseline float64 `json:"lidAngleBaseline"`
+	Calibrating      bool    `json:"calibrating,omitempty"`
+	ACPower     bool         `json:"acPower"`
 	LastAlert   string       `json:"lastAlert,omitempty"`
 	Notify      NotifyStatus `json:"notify"`
 }
@@ -415,6 +441,7 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 				guard.Moving = false
 				guard.MagEWMA = 0
 				guard.mu.Unlock()
+				stopAlarm(guard)
 				sendTelegramMessage(token, chatID, "All guards disarmed.")
 
 			case "/status":
@@ -552,6 +579,25 @@ func monitorLoop(ctx context.Context, guard *GuardState, ring *shm.RingBuffer) {
 			appendMovementRecord(guard)
 			guard.mu.Lock()
 		}
+
+		// Check AC power state for disconnect alert
+		acNow := isOnAC()
+		if (guard.LocalArmed || guard.GeoArmed) && guard.LastACState && !acNow {
+			token := guard.Token
+			chatID := guard.ChatID
+			wantACAlarm := guard.AlarmEnabled && guard.ACDisconnectAlarm
+			acSound := guard.AlarmSound
+			if acSound == "" {
+				acSound = "Sosumi"
+			}
+			guard.mu.Unlock()
+			go sendTelegramMessage(token, chatID, "*AC power disconnected!* Charger was unplugged while armed.")
+			if wantACAlarm {
+				go playAlarm(guard, acSound)
+			}
+			guard.mu.Lock()
+		}
+		guard.LastACState = acNow
 
 		localReady := guard.LocalArmed && guard.LocalDelay <= 0
 		geoReady := guard.GeoArmed && guard.GeoDelay <= 0
@@ -718,6 +764,7 @@ func startHTTPServer(guard *GuardState, port int) {
 			guard.Moving = false
 		}
 		guard.mu.Unlock()
+		stopAlarm(guard)
 
 		fmt.Fprintf(os.Stderr, "macguard: DISARMED (%s)\n", body.Mode)
 		w.Header().Set("Content-Type", "application/json")
@@ -746,12 +793,14 @@ func startHTTPServer(guard *GuardState, port int) {
 				guard.MagBaseline = guard.CalibSum / float64(guard.CalibSamples)
 				guard.TiltBaseline = guard.CalibTiltSum / float64(guard.CalibSamples)
 			}
+			guard.LidAngleBaseline = getLidAngle()
 			guard.Calibrating = false
 			guard.MagEWMA = 0
 			baseline := guard.MagBaseline
 			tiltBase := guard.TiltBaseline
+			lidBase := guard.LidAngleBaseline
 			guard.mu.Unlock()
-			fmt.Fprintf(os.Stderr, "macguard: calibrated baseline=%.6fg tilt=%.1f° (%d samples)\n", baseline, tiltBase, guard.CalibSamples)
+			fmt.Fprintf(os.Stderr, "macguard: calibrated baseline=%.6fg tilt=%.1f° lidAngle=%.0f° (%d samples)\n", baseline, tiltBase, lidBase, guard.CalibSamples)
 			saveSettings(guard)
 		}()
 
@@ -769,8 +818,13 @@ func startHTTPServer(guard *GuardState, port int) {
 			SMTPHost:       guard.SMTPHost,
 			SMTPUser:       guard.SMTPUser,
 			SMTPPass:       guard.SMTPPass,
-			Baseline:       guard.MagBaseline,
-			TelegramChatID: guard.ChatID,
+			Baseline:         guard.MagBaseline,
+			LidAngleBaseline: guard.LidAngleBaseline,
+			TelegramChatID:   guard.ChatID,
+			AlarmEnabled:      guard.AlarmEnabled,
+			AlarmSound:        guard.AlarmSound,
+			GeoAlarmSound:     guard.GeoAlarmSound,
+			ACDisconnectAlarm: guard.ACDisconnectAlarm,
 		}
 		guard.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -798,6 +852,10 @@ func startHTTPServer(guard *GuardState, port int) {
 		if s.SMTPPass != "" {
 			guard.SMTPPass = s.SMTPPass
 		}
+		guard.AlarmEnabled = s.AlarmEnabled
+		guard.AlarmSound = s.AlarmSound
+		guard.GeoAlarmSound = s.GeoAlarmSound
+		guard.ACDisconnectAlarm = s.ACDisconnectAlarm
 		guard.mu.Unlock()
 		saveSettings(guard)
 		w.Header().Set("Content-Type", "application/json")
@@ -807,9 +865,10 @@ func startHTTPServer(guard *GuardState, port int) {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		guard.mu.Lock()
 		resp := StatusResponse{
-			Magnitude:   guard.MagEWMA,
-			Baseline:    guard.MagBaseline,
-			Calibrating: guard.Calibrating,
+			Magnitude:        guard.MagEWMA,
+			Baseline:         guard.MagBaseline,
+			LidAngleBaseline: guard.LidAngleBaseline,
+			Calibrating:      guard.Calibrating,
 			Notify: NotifyStatus{
 				Telegram: guard.NotifyTelegram && guard.Token != "",
 				Email:    guard.NotifyEmailFlag && guard.SMTPHost != "" && guard.NotifyEmail != "",
@@ -834,6 +893,7 @@ func startHTTPServer(guard *GuardState, port int) {
 			resp.Geo = ModeStatus{Status: "disarmed"}
 		}
 		resp.Moving = guard.Moving
+		resp.ACPower = guard.LastACState
 		if !guard.LastAlert.IsZero() {
 			resp.LastAlert = guard.LastAlert.Format(time.RFC3339)
 		}
@@ -969,6 +1029,23 @@ func startHTTPServer(guard *GuardState, port int) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
+	})
+
+	mux.HandleFunc("POST /alarm/test", func(w http.ResponseWriter, r *http.Request) {
+		sound := r.URL.Query().Get("sound")
+		if sound == "" {
+			sound = "Sosumi"
+		}
+		// Sanitize: only allow alphanumeric sound names
+		for _, c := range sound {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+				http.Error(w, "invalid sound name", 400)
+				return
+			}
+		}
+		go exec.Command("launchctl", "asuser", "501", "afplay", "/System/Library/Sounds/"+sound+".aiff").Run()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "playing", "sound": sound})
 	})
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {

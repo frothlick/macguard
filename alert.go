@@ -296,6 +296,20 @@ func sendAlert(guard *GuardState, token string, chatID int64, mag float64) {
 	if wantEmail && smtpHost != "" && notifyEmail != "" {
 		sendEmailAlert(smtpHost, smtpUser, smtpPass, notifyEmail, text)
 	}
+
+	// Play alarm sound
+	if mag > 0 {
+		guard.mu.Lock()
+		alarmEnabled := guard.AlarmEnabled
+		alarmSound := guard.AlarmSound
+		guard.mu.Unlock()
+		if alarmEnabled {
+			if alarmSound == "" {
+				alarmSound = "Sosumi"
+			}
+			playAlarm(guard, alarmSound)
+		}
+	}
 }
 
 func sendEmailAlert(host, user, pass, to, body string) {
@@ -378,7 +392,52 @@ func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	return R * c
 }
 
+func playAlarm(guard *GuardState, sound string) {
+	if sound == "" {
+		sound = "Sosumi"
+	}
+	stop := make(chan struct{})
+	guard.mu.Lock()
+	// Stop any existing alarm first
+	if guard.alarmStop != nil {
+		close(guard.alarmStop)
+	}
+	guard.alarmStop = stop
+	guard.mu.Unlock()
+
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			cmd := exec.Command("launchctl", "asuser", "501", "afplay", "/System/Library/Sounds/"+sound+".aiff")
+			cmd.Run()
+			select {
+			case <-stop:
+				return
+			case <-time.After(1500 * time.Millisecond):
+			}
+		}
+	}()
+}
+
+func stopAlarm(guard *GuardState) {
+	guard.mu.Lock()
+	if guard.alarmStop != nil {
+		close(guard.alarmStop)
+		guard.alarmStop = nil
+	}
+	guard.mu.Unlock()
+}
+
 func checkGeoFence(guard *GuardState, token string, chatID int64, anchorLat, anchorLon, mag float64) {
+	// Invalidate geo cache to force fresh GPS lookup
+	geoMu.Lock()
+	geoCacheTime = time.Time{}
+	geoMu.Unlock()
+
 	geo := getLocation()
 	if geo == nil || !geo.Precise {
 		// Can't verify location without precise signal, skip
@@ -410,9 +469,19 @@ func checkGeoFence(guard *GuardState, token string, chatID int64, anchorLat, anc
 	smtpUser := guard.SMTPUser
 	smtpPass := guard.SMTPPass
 	notifyEmail := guard.NotifyEmail
+	alarmEnabled := guard.AlarmEnabled
+	geoAlarmSound := guard.GeoAlarmSound
 	guard.mu.Unlock()
 
 	if smtpHost != "" && notifyEmail != "" {
 		sendEmailAlert(smtpHost, smtpUser, smtpPass, notifyEmail, text)
+	}
+
+	// Play geo-fence alarm sound
+	if alarmEnabled {
+		if geoAlarmSound == "" {
+			geoAlarmSound = "Submarine"
+		}
+		playAlarm(guard, geoAlarmSound)
 	}
 }

@@ -78,6 +78,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <button onclick="setSettingsTab('general')" id="tab-general" style="background:none; border:none; border-bottom:2px solid var(--accent); color:var(--text); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">General</button>
       <button onclick="setSettingsTab('telegram')" id="tab-telegram" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">Telegram</button>
       <button onclick="setSettingsTab('email')" id="tab-email" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">Email</button>
+      <button onclick="setSettingsTab('alarm')" id="tab-alarm" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">Alarm</button>
       <button onclick="setSettingsTab('about')" id="tab-about" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:8px 20px; cursor:pointer; font-size:0.85em; font-weight:600">About</button>
     </div>
 
@@ -92,10 +93,17 @@ const dashboardHTML = `<!DOCTYPE html>
 
       <div style="margin-bottom:20px">
         <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Calibration</label>
+        <div style="font-size:0.8em; color:var(--dim); margin-top:6px; line-height:1.5">
+          1. Place your Mac on a standard-height desk (72&ndash;76 cm, DIN norm) and sit in your normal position.<br>
+          2. Open the lid to your comfortable viewing angle.<br>
+          3. Do not touch or move the laptop during calibration.<br>
+          The process takes ~3 seconds and records accelerometer baseline, tilt offset, and your desk lid angle for accurate zone classification.
+        </div>
         <div style="display:flex; align-items:center; gap:12px; margin-top:8px">
           <button class="btn btn-loc" onclick="doCalibrate()" id="calib-btn" style="font-size:0.82em; padding:8px 16px">Calibrate</button>
           <span id="baseline-info" style="font-size:0.82em; color:var(--dim)"></span>
         </div>
+        <div id="calib-details" style="font-size:0.78em; color:var(--dim); margin-top:8px; display:none"></div>
       </div>
     </div>
 
@@ -149,6 +157,44 @@ const dashboardHTML = `<!DOCTYPE html>
       </div>
     </div>
 
+    <div id="tab-content-alarm" style="display:none">
+      <div style="margin-bottom:20px">
+        <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+          <input type="checkbox" id="set-alarm-enabled" style="width:18px; height:18px">
+          <span style="font-size:0.92em; font-weight:500">Enable alarm sound</span>
+        </label>
+        <span style="font-size:0.72em; color:var(--dim); margin-left:28px">Plays an audible alarm through the laptop speakers when triggered</span>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Movement Alarm Sound</label>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
+          <select id="set-alarm-sound" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:8px 12px; font-size:0.9em; flex:1">
+            <option value="Basso">Basso</option><option value="Blow">Blow</option><option value="Bottle">Bottle</option><option value="Frog">Frog</option><option value="Funk">Funk</option><option value="Glass">Glass</option><option value="Hero">Hero</option><option value="Morse">Morse</option><option value="Ping">Ping</option><option value="Pop">Pop</option><option value="Purr">Purr</option><option value="Sosumi" selected>Sosumi</option><option value="Submarine">Submarine</option><option value="Tink">Tink</option>
+          </select>
+          <button class="btn btn-loc" onclick="testAlarmSound('set-alarm-sound')" style="font-size:0.82em; padding:8px 12px; white-space:nowrap">Preview</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="font-size:0.82em; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Geo-Fence Alarm Sound</label>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
+          <select id="set-geo-alarm-sound" style="background:var(--picker-bg); color:var(--text); border:1px solid var(--picker-border); border-radius:6px; padding:8px 12px; font-size:0.9em; flex:1">
+            <option value="Basso">Basso</option><option value="Blow">Blow</option><option value="Bottle">Bottle</option><option value="Frog">Frog</option><option value="Funk">Funk</option><option value="Glass">Glass</option><option value="Hero">Hero</option><option value="Morse">Morse</option><option value="Ping">Ping</option><option value="Pop">Pop</option><option value="Purr">Purr</option><option value="Sosumi">Sosumi</option><option value="Submarine" selected>Submarine</option><option value="Tink">Tink</option>
+          </select>
+          <button class="btn btn-loc" onclick="testAlarmSound('set-geo-alarm-sound')" style="font-size:0.82em; padding:8px 12px; white-space:nowrap">Preview</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+          <input type="checkbox" id="set-ac-alarm" style="width:18px; height:18px">
+          <span style="font-size:0.92em; font-weight:500">Alarm on AC disconnect</span>
+        </label>
+        <span style="font-size:0.72em; color:var(--dim); margin-left:28px">Play alarm when the charger is unplugged while armed</span>
+      </div>
+    </div>
+
     <div id="tab-content-about" style="display:none; text-align:center; padding:20px 0">
       <div style="font-size:1.4em; font-weight:700; margin-bottom:4px">MacGuard</div>
       <div style="font-size:0.82em; color:var(--muted); margin-bottom:20px">Theft-detection daemon for Apple Silicon Macs</div>
@@ -185,6 +231,7 @@ const dashboardHTML = `<!DOCTYPE html>
     <div class="stat" id="magnitude">...</div>
     <div id="zone-label" style="color:var(--muted); font-size:0.85em; margin-top:4px"></div>
     <div id="mag-baseline-info" style="font-size:0.72em; color:var(--dim); margin-top:4px"></div>
+    <div id="ac-status" style="font-size:0.78em; margin-top:6px"></div>
   </div>
   <div class="card">
     <h2>Location</h2>
@@ -265,21 +312,53 @@ function toggleTheme() {
 
 function getCSS(v) { return getComputedStyle(document.body).getPropertyValue(v).trim(); }
 
-function classifyZone(mag, peak, tilt) {
+var gLidAngleBaseline = 0;
+function classifyZone(mag, peak, tilt, lidAngle) {
+  var laThresh = gLidAngleBaseline > 0 ? gLidAngleBaseline + 5 : 115;
+  var notFlat = (tilt || 0) > 2 || (lidAngle > 0 && lidAngle > laThresh);
   if (mag >= 0.040) return 'impact';
   if (mag >= 0.015) return 'motion';
   if (mag >= 0.004) return 'lap';
-  if ((tilt || 0) > 15 && (peak || 0) >= 0.01) return 'lap';
+  if (notFlat && (peak || 0) >= 0.01) return 'lap';
+  if (notFlat && (peak || 0) < 0.01) return 'resting';
   if (mag >= 0.001) return 'desk';
   if ((peak || 0) >= 0.01) return 'desk';
   return 'resting';
 }
 
 // --- Controls ---
+function estimateHeight(lidAngle) {
+  // Higher desk lid angle = taller person (needs to tilt screen back more)
+  // ~100° ≈ 160cm, ~111° ≈ 180cm, ~120° ≈ 200cm
+  if (lidAngle <= 0) return '';
+  var cm = Math.round(160 + (lidAngle - 100) * 2);
+  if (cm < 150) cm = 150;
+  if (cm > 210) cm = 210;
+  return '~' + cm + 'cm';
+}
+
+function showCalibDetails() {
+  var el = document.getElementById('calib-details');
+  if (!el) return;
+  fetch('/status').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.baseline > 0) {
+      var lines = [];
+      lines.push('Noise floor: ' + d.baseline.toFixed(6) + 'g');
+      if (d.lidAngleBaseline > 0) {
+        lines.push('Desk lid angle: ' + d.lidAngleBaseline.toFixed(0) + '\u00b0');
+        var h = estimateHeight(d.lidAngleBaseline);
+        if (h) lines.push('Estimated height: ' + h);
+      }
+      el.innerHTML = lines.join(' &middot; ');
+      el.style.display = 'block';
+    }
+  });
+}
+
 async function doCalibrate() {
   document.getElementById('calib-btn').textContent = 'Calibrating...';
   await fetch('/calibrate', { method: 'POST' });
-  setTimeout(function() { document.getElementById('calib-btn').textContent = 'Calibrate'; loadStatus(); }, 3500);
+  setTimeout(function() { document.getElementById('calib-btn').textContent = 'Calibrate'; loadStatus(); showCalibDetails(); }, 3500);
 }
 
 async function doArm(mode) {
@@ -342,6 +421,8 @@ async function loadStatus() {
     document.getElementById('zone-label').innerHTML = d.calibrating ? '' : '<span style="color:' + zoneColors[zone] + '">' + zone + '</span>';
     document.getElementById('mag-baseline-info').textContent = (d.baseline > 0) ? 'Calibrated' : 'Not calibrated';
     document.getElementById('mag-baseline-info').style.color = (d.baseline > 0) ? 'var(--accent)' : 'var(--dim)';
+    if (d.lidAngleBaseline > 0) gLidAngleBaseline = d.lidAngleBaseline;
+    document.getElementById('ac-status').innerHTML = d.acPower ? '<span style="color:#00ffaa">AC Power</span>' : '<span style="color:var(--dim)">Battery</span>';
   } catch(e) {}
 }
 
@@ -518,7 +599,7 @@ function sunMarkersForRange(startMin, endMin, date) {
 
 async function loadChart() {
   const navLabel = document.getElementById('nav-label');
-  let labels = [], data = [], peakData = [], lidData = [], tiltData = [], lidAngleData = [], segments = [], sunMarks = [];
+  let labels = [], data = [], peakData = [], lidData = [], tiltData = [], lidAngleData = [], acData = [], segments = [], sunMarks = [];
 
   if (gran === 'minute') {
     // Rolling 60-minute window ending at cursor
@@ -544,7 +625,8 @@ async function loadChart() {
     lidData = filtered.map(function(r) { return r.lid; });
     tiltData = filtered.map(function(r) { return r.tilt || 0; });
     lidAngleData = filtered.map(function(r) { return r.lidAngle || 0; });
-    segments = filtered.map(function(r) { return zoneColors[classifyZone(r.avg, r.peak, r.tilt)] || '#999'; });
+    acData = filtered.map(function(r) { return r.ac; });
+    segments = filtered.map(function(r) { return zoneColors[classifyZone(r.avg, r.peak, r.tilt, r.lidAngle)] || '#999'; });
     sunMarks = sunMarkersForRange(sMin < eMin ? sMin : sMin, sMin < eMin ? eMin : eMin + 1440, end);
 
   } else if (gran === '24h') {
@@ -558,7 +640,8 @@ async function loadChart() {
     lidData = records.map(function(r) { return r.lid; });
     tiltData = records.map(function(r) { return r.tilt || 0; });
     lidAngleData = records.map(function(r) { return r.lidAngle || 0; });
-    segments = records.map(function(r) { return zoneColors[classifyZone(r.avg, r.peak, r.tilt)] || '#999'; });
+    acData = records.map(function(r) { return r.ac; });
+    segments = records.map(function(r) { return zoneColors[classifyZone(r.avg, r.peak, r.tilt, r.lidAngle)] || '#999'; });
     sunMarks = sunMarkersForRange(0, 1440, cursor);
 
   } else if (gran === 'hour') {
@@ -580,12 +663,14 @@ async function loadChart() {
       var pk = mins.length ? mins.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / mins.length : 0;
       var tl = mins.length ? mins.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / mins.length : 0;
       var la = mins.length ? mins.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / mins.length : 0;
-      var zone = classifyZone(avg, pk, tl);
+      var lidFrac = mins.length ? mins.filter(function(r) { return r.lid === false; }).length / mins.length : 0;
+      var zone = classifyZone(avg, pk, tl, la);
       labels.push(hourStr + ':00');
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
       lidAngleData.push(la);
+      lidData.push(lidFrac);
       segments.push(zoneColors[zone]);
     }
     var sMinH = ((startH % 24) + 24) % 24 * 60;
@@ -604,12 +689,14 @@ async function loadChart() {
       var pk = mins.length ? mins.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / mins.length : 0;
       var tl = mins.length ? mins.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / mins.length : 0;
       var la = mins.length ? mins.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / mins.length : 0;
-      var zone = classifyZone(avg, pk, tl);
+      var lidFrac = mins.length ? mins.filter(function(r) { return r.lid === false; }).length / mins.length : 0;
+      var zone = classifyZone(avg, pk, tl, la);
       labels.push(dp);
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
       lidAngleData.push(la);
+      lidData.push(lidFrac);
       segments.push(zoneColors[zone]);
     });
     sunMarks = sunMarkersForRange(0, 1440, cursor);
@@ -629,11 +716,13 @@ async function loadChart() {
       var pk = recs.length ? recs.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / recs.length : 0;
       var tl = recs.length ? recs.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / recs.length : 0;
       var la = recs.length ? recs.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / recs.length : 0;
-      var zone = classifyZone(avg, pk, tl);
+      var lidFrac = recs.length ? recs.filter(function(r) { return r.lid === false; }).length / recs.length : 0;
+      var zone = classifyZone(avg, pk, tl, la);
       labels.push(dayNames[i] + ' ' + ds.slice(5));
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
+      lidData.push(lidFrac);
       lidAngleData.push(la);
       segments.push(zoneColors[zone]);
     }
@@ -659,18 +748,20 @@ async function loadChart() {
       var pk = allRecs.length ? allRecs.reduce(function(s,r) { return s + (r.peak || 0); }, 0) / allRecs.length : 0;
       var tl = allRecs.length ? allRecs.reduce(function(s,r) { return s + (r.tilt || 0); }, 0) / allRecs.length : 0;
       var la = allRecs.length ? allRecs.reduce(function(s,r) { return s + (r.lidAngle || 0); }, 0) / allRecs.length : 0;
-      var zone = classifyZone(avg, pk, tl);
+      var lidFrac = allRecs.length ? allRecs.filter(function(r) { return r.lid === false; }).length / allRecs.length : 0;
+      var zone = classifyZone(avg, pk, tl, la);
       labels.push('CW' + cw);
       data.push(avg);
       peakData.push(pk);
       tiltData.push(tl);
       lidAngleData.push(la);
+      lidData.push(lidFrac);
       segments.push(zoneColors[zone]);
       wStart = addDays(wEnd, 1);
     }
   }
 
-  renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, segments, sunMarks);
+  renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, acData, segments, sunMarks);
 }
 
 function labelToMin(lbl) {
@@ -682,7 +773,7 @@ function labelToMin(lbl) {
   return -1;
 }
 
-function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, segColors, sunMarks) {
+function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, acData, segColors, sunMarks) {
   if (chart) chart.destroy();
   var ctx = document.getElementById('chart');
   var labelMins = labels.map(labelToMin);
@@ -712,12 +803,16 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, se
       for (var i = 0; i < segColors.length; i++) {
         var x0 = i === 0 ? xScale.left : (xScale.getPixelForValue(i-1) + xScale.getPixelForValue(i)) / 2;
         var x1 = i === segColors.length-1 ? xScale.right : (xScale.getPixelForValue(i) + xScale.getPixelForValue(i+1)) / 2;
-        var closed = lidData && lidData[i] === false;
+        var lidVal = lidData ? lidData[i] : null;
+        var closed = lidVal === false || (typeof lidVal === 'number' && lidVal > 0);
         c.fillStyle = segColors[i] + '15';
         c.fillRect(x0, yScale.top, x1 - x0, h);
         if (closed && hatchPattern) {
+          c.save();
+          c.globalAlpha = lidVal === false ? 1 : lidVal;
           c.fillStyle = hatchPattern;
           c.fillRect(x0, yScale.top, x1 - x0, h);
+          c.restore();
         }
       }
     }
@@ -730,10 +825,13 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, se
       var xScale = ch.scales.x, yScale = ch.scales.y, c = ch.ctx;
       var barH = 3, barY = yScale.top - 1;
       for (var i = 0; i < lidData.length; i++) {
-        if (lidData[i] !== false) continue;
+        var lv = lidData[i];
+        var isClosed = lv === false || (typeof lv === 'number' && lv > 0);
+        if (!isClosed) continue;
         var x0 = i === 0 ? xScale.left : (xScale.getPixelForValue(i-1) + xScale.getPixelForValue(i)) / 2;
         var x1 = i === lidData.length-1 ? xScale.right : (xScale.getPixelForValue(i) + xScale.getPixelForValue(i+1)) / 2;
-        c.fillStyle = '#88888866';
+        var alpha = lv === false ? 0.4 : lv * 0.4;
+        c.fillStyle = 'rgba(136,136,136,' + alpha + ')';
         c.fillRect(x0, barY, x1 - x0, barH);
       }
     }
@@ -844,9 +942,14 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, se
         if (ctx.datasetIndex === 1) return 'Peak: ' + ctx.parsed.y.toFixed(4) + 'g';
         var lines = ['Avg: ' + ctx.parsed.y.toFixed(4) + 'g'];
         if (peakData && peakData[i]) lines.push('Peak: ' + peakData[i].toFixed(4) + 'g');
-        if (tiltData && tiltData[i]) lines.push('Tilt: ' + tiltData[i].toFixed(1) + '\u00b0');
+        if (tiltData && tiltData[i] != null) lines.push('Tilt: ' + tiltData[i].toFixed(1) + '\u00b0');
         if (lidAngleData && lidAngleData[i]) lines.push('Lid angle: ' + lidAngleData[i].toFixed(0) + '\u00b0');
-        if (lidData) lines.push('Lid: ' + (lidData[i] === false ? 'closed' : lidData[i] === true ? 'open' : 'n/a'));
+        if (lidData) {
+          var lv = lidData[i];
+          var lidStr = lv === false ? 'closed' : lv === true ? 'open' : typeof lv === 'number' && lv > 0 ? Math.round(lv * 100) + '% closed' : 'n/a';
+          lines.push('Lid: ' + lidStr);
+        }
+        if (acData) lines.push('AC: ' + (acData[i] === true ? 'connected' : acData[i] === false ? 'battery' : 'n/a'));
         return lines;
       } } } },
       scales: scales
@@ -857,7 +960,7 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, se
 
 // --- Settings ---
 function setSettingsTab(tab) {
-  ['general','telegram','email','about'].forEach(function(t) {
+  ['general','telegram','email','alarm','about'].forEach(function(t) {
     document.getElementById('tab-content-' + t).style.display = t === tab ? 'block' : 'none';
     var btn = document.getElementById('tab-' + t);
     btn.style.borderBottomColor = t === tab ? 'var(--accent)' : 'transparent';
@@ -873,6 +976,11 @@ function toggleEmailFields() {
   document.getElementById('email-fields').style.display = document.getElementById('set-email').checked ? 'block' : 'none';
 }
 
+async function testAlarmSound(selectId) {
+  var sound = document.getElementById(selectId).value;
+  try { await fetch('/alarm/test?sound=' + encodeURIComponent(sound), { method: 'POST' }); } catch(e) {}
+}
+
 async function openSettings() {
   try {
     const r = await fetch('/settings');
@@ -885,10 +993,15 @@ async function openSettings() {
     document.getElementById('set-smtp-host').value = s.smtpHost || '';
     document.getElementById('set-smtp-user').value = s.smtpUser || '';
     document.getElementById('set-smtp-pass').value = '';
+    document.getElementById('set-alarm-enabled').checked = s.alarmEnabled || false;
+    document.getElementById('set-alarm-sound').value = s.alarmSound || 'Sosumi';
+    document.getElementById('set-geo-alarm-sound').value = s.geoAlarmSound || 'Submarine';
+    document.getElementById('set-ac-alarm').checked = s.acDisconnectAlarm || false;
     var calBtn = document.querySelector('#settings-overlay #calib-btn');
     if (calBtn) calBtn.textContent = 'Calibrate';
     var bi = document.querySelector('#settings-overlay #baseline-info');
     if (bi) { bi.textContent = s.baseline > 0 ? 'Calibrated' : 'Not calibrated'; bi.style.color = s.baseline > 0 ? 'var(--accent)' : 'var(--dim)'; }
+    showCalibDetails();
   } catch(e) {}
   setSettingsTab('general');
   toggleTelegramFields();
@@ -910,7 +1023,11 @@ async function saveSettingsUI() {
     emailAddress: document.getElementById('set-email-addr').value,
     smtpHost: document.getElementById('set-smtp-host').value,
     smtpUser: document.getElementById('set-smtp-user').value,
-    smtpPass: document.getElementById('set-smtp-pass').value
+    smtpPass: document.getElementById('set-smtp-pass').value,
+    alarmEnabled: document.getElementById('set-alarm-enabled').checked,
+    alarmSound: document.getElementById('set-alarm-sound').value,
+    geoAlarmSound: document.getElementById('set-geo-alarm-sound').value,
+    acDisconnectAlarm: document.getElementById('set-ac-alarm').checked
   };
   try {
     await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) });
