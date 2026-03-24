@@ -6,6 +6,7 @@ const dashboardHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MacGuard</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9/dist/leaflet.js"></script>
@@ -214,14 +215,17 @@ const dashboardHTML = `<!DOCTYPE html>
     <div id="tab-content-about" style="display:none; text-align:center; padding:20px 0">
       <div style="font-size:1.4em; font-weight:700; margin-bottom:4px">MacGuard</div>
       <div style="font-size:0.82em; color:var(--muted); margin-bottom:20px">Theft-detection daemon for Apple Silicon Macs</div>
-      <div style="margin-bottom:16px">
-        <div style="font-size:0.9em; font-weight:500">Alexander Wipf</div>
-        <a href="mailto:alexander@wipf.com" style="font-size:0.82em; color:var(--accent); text-decoration:none">alexander@wipf.com</a>
+      <div style="margin-bottom:16px; display:flex; align-items:center; justify-content:center; gap:12px">
+        <img src="/logo.png" alt="wipf.com" style="width:40px; height:40px; border-radius:6px">
+        <div>
+          <div style="font-size:0.9em; font-weight:500">Alexander Wipf</div>
+          <a href="mailto:alexander@wipf.com" style="font-size:0.82em; color:var(--accent); text-decoration:none">alexander@wipf.com</a>
+        </div>
       </div>
       <div style="margin-bottom:20px">
         <a href="https://github.com/frothlick/macguard" target="_blank" style="font-size:0.85em; color:var(--accent); text-decoration:none">github.com/frothlick/macguard</a>
       </div>
-      <div style="font-size:0.72em; color:var(--dim)">v0.3.0</div>
+      <div style="font-size:0.72em; color:var(--dim)">v0.4.0</div>
     </div>
 
     </div>

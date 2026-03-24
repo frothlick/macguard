@@ -1061,6 +1061,11 @@ func startHTTPServer(guard *GuardState, port int) {
 		http.ServeFile(w, r, logoPath)
 	})
 
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		faviconPath := filepath.Join(filepath.Dir(os.Args[0]), "favicon.ico")
+		http.ServeFile(w, r, faviconPath)
+	})
+
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
