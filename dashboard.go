@@ -219,6 +219,8 @@ const dashboardHTML = `<!DOCTYPE html>
         <img src="/favicon.ico" alt="wipf.com" style="width:40px; height:40px; border-radius:6px">
         <div>
           <div style="font-size:0.9em; font-weight:500">Alexander Wipf</div>
+          <a href="https://wipf.com" target="_blank" style="font-size:0.82em; color:var(--accent); text-decoration:none">wipf.com</a>
+          <span style="font-size:0.82em; color:var(--muted)"> · </span>
           <a href="mailto:alexander@wipf.com" style="font-size:0.82em; color:var(--accent); text-decoration:none">alexander@wipf.com</a>
         </div>
       </div>
