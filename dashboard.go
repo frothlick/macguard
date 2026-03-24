@@ -62,7 +62,6 @@ const dashboardHTML = `<!DOCTYPE html>
 <body>
 <div class="header">
   <div class="header-left">
-    <img src="/logo.png" alt="MacGuard">
     <div>
       <h1>MacGuard</h1>
       <span class="subtitle">by alexander@wipf.com</span>
