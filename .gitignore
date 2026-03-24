@@ -1,3 +1,5 @@
 macguard
 locate
 Locate.app/
+.env
+.DS_Store

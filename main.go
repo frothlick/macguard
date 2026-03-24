@@ -225,11 +225,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	const defaultBotToken = "8723096596:AAEWWdqZwV-c5Wxww0DoKwHT4XN_VCkTttE"
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	if token == "" {
-		token = defaultBotToken
-	}
 
 	chatIDStr := os.Getenv("TELEGRAM_CHAT_ID")
 	var chatID int64
