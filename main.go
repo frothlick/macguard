@@ -186,7 +186,7 @@ func saveSettings(guard *GuardState) {
 		return
 	}
 	tmp := settingsPath() + ".tmp"
-	os.WriteFile(tmp, data, 0644)
+	os.WriteFile(tmp, data, 0600)
 	os.Rename(tmp, settingsPath())
 }
 
@@ -211,6 +211,24 @@ type StatusResponse struct {
 type NotifyStatus struct {
 	Telegram bool `json:"telegram"`
 	Email    bool `json:"email"`
+}
+
+// consoleUID returns the UID of the currently logged-in GUI user.
+func consoleUID() string {
+	out, err := exec.Command("stat", "-f", "%u", "/dev/console").Output()
+	if err != nil {
+		return "501" // fallback
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// consoleUser returns the username of the currently logged-in GUI user.
+func consoleUser() string {
+	out, err := exec.Command("stat", "-f", "%Su", "/dev/console").Output()
+	if err != nil {
+		return "alexander.wipf" // fallback
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func main() {
@@ -473,11 +491,9 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 				if len(cmd) > 5 {
 					msgText = strings.TrimSpace(cmd[4:])
 				}
-				escaped := strings.ReplaceAll(msgText, `"`, `\"`)
-				escaped = strings.ReplaceAll(escaped, `'`, `'"'"'`)
-				displayCmd := exec.Command("su", "-", "alexander.wipf", "-c",
-					fmt.Sprintf(`osascript -e 'display dialog "%s" with title "MacGuard" buttons {"OK"} default button "OK" with icon caution'`,
-						escaped))
+				script := fmt.Sprintf(`display dialog %q with title "MacGuard" buttons {"OK"} default button "OK" with icon caution`, msgText)
+				displayCmd := exec.Command("launchctl", "asuser", consoleUID(),
+					"osascript", "-e", script)
 				displayCmd.Run()
 				sendTelegramMessage(token, chatID, "Message displayed.")
 
@@ -813,21 +829,21 @@ func startHTTPServer(guard *GuardState, port int) {
 	mux.HandleFunc("GET /settings", func(w http.ResponseWriter, r *http.Request) {
 		guard.mu.Lock()
 		s := UserSettings{
-			DefaultDelay:   guard.DefaultDelay,
-			NotifyTelegram: guard.NotifyTelegram,
-			NotifyEmail:    guard.NotifyEmailFlag,
-			EmailAddress:   guard.NotifyEmail,
-			SMTPHost:       guard.SMTPHost,
-			SMTPUser:       guard.SMTPUser,
-			SMTPPass:       guard.SMTPPass,
-			Baseline:         guard.MagBaseline,
-			LidAngleBaseline: guard.LidAngleBaseline,
-			TelegramChatID:   guard.ChatID,
+			DefaultDelay:      guard.DefaultDelay,
+			NotifyTelegram:    guard.NotifyTelegram,
+			NotifyEmail:       guard.NotifyEmailFlag,
+			EmailAddress:      guard.NotifyEmail,
+			SMTPHost:          guard.SMTPHost,
+			SMTPUser:          guard.SMTPUser,
+			SMTPPass:          "", // never expose password via API
+			Baseline:          guard.MagBaseline,
+			LidAngleBaseline:  guard.LidAngleBaseline,
+			TelegramChatID:    guard.ChatID,
 			AlarmEnabled:      guard.AlarmEnabled,
 			AlarmSound:        guard.AlarmSound,
 			GeoAlarmSound:     guard.GeoAlarmSound,
 			ACAlarmSound:      guard.ACAlarmSound,
-		ACDisconnectAlarm: guard.ACDisconnectAlarm,
+			ACDisconnectAlarm: guard.ACDisconnectAlarm,
 		}
 		guard.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -972,7 +988,7 @@ func startHTTPServer(guard *GuardState, port int) {
 		fpath := filepath.Join(moveLogDir(), fname)
 		session := TrainingSession{Start: time.Now().Format("2006-01-02 15:04:05")}
 		data, _ := json.Marshal(session)
-		os.WriteFile(fpath, data, 0644)
+		os.WriteFile(fpath, data, 0600)
 		guard.Training = true
 		guard.TrainingFile = fpath
 		guard.SecSum = 0
@@ -1047,7 +1063,7 @@ func startHTTPServer(guard *GuardState, port int) {
 				return
 			}
 		}
-		go exec.Command("launchctl", "asuser", "501", "afplay", alarmSoundPath(sound)).Run()
+		go exec.Command("launchctl", "asuser", consoleUID(), "afplay", alarmSoundPath(sound)).Run()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "playing", "sound": sound})
 	})
@@ -1121,6 +1137,11 @@ func startHTTPServer(guard *GuardState, port int) {
 		if date == "" {
 			date = time.Now().Format("2006-01-02")
 		}
+		// Validate date format to prevent path traversal
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			http.Error(w, "invalid date format", 400)
+			return
+		}
 		path := moveLogPath(date)
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -1148,7 +1169,7 @@ func startHTTPServer(guard *GuardState, port int) {
 		dir := filepath.Dir(os.Args[0])
 		capturePath := filepath.Join(dir, "capture")
 
-		cmd := exec.Command("launchctl", "asuser", "501",
+		cmd := exec.Command("launchctl", "asuser", consoleUID(),
 			capturePath, fmt.Sprintf("%d", body.Duration))
 		out, err := cmd.Output()
 		if err != nil {
@@ -1165,5 +1186,5 @@ func startHTTPServer(guard *GuardState, port int) {
 		w.Write(out)
 	})
 
-	go http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+	go http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", port), mux)
 }

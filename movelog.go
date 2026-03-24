@@ -80,7 +80,7 @@ func isLidOpen() bool {
 func getLidAngle() float64 {
 	bin := filepath.Join(filepath.Dir(os.Args[0]), "lidangle")
 	if _, err := os.Stat(bin); err != nil {
-		bin = "/Users/alexander.wipf/macguard/helpers/lidangle"
+		bin = filepath.Join(filepath.Dir(os.Args[0]), "helpers", "lidangle")
 	}
 	out, err := exec.Command(bin).Output()
 	if err != nil {
@@ -146,13 +146,17 @@ func appendTrainingRecord(guard *GuardState) {
 		return
 	}
 	tmp := filePath + ".tmp"
-	os.WriteFile(tmp, data, 0644)
+	os.WriteFile(tmp, data, 0600)
 	os.Rename(tmp, filePath)
 }
 
 func moveLogDir() string {
-	dir := "/Users/alexander.wipf/.macguard"
-	os.MkdirAll(dir, 0755)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/Users/" + consoleUser()
+	}
+	dir := filepath.Join(home, ".macguard")
+	os.MkdirAll(dir, 0700)
 	return dir
 }
 
@@ -261,7 +265,7 @@ func appendLocationRecord(geo *GeoLocation) {
 		return
 	}
 	tmp := path + ".tmp"
-	os.WriteFile(tmp, data, 0644)
+	os.WriteFile(tmp, data, 0600)
 	os.Rename(tmp, path)
 }
 
@@ -331,7 +335,7 @@ func appendMovementRecord(guard *GuardState) {
 		return
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		fmt.Fprintf(os.Stderr, "movelog write: %v\n", err)
 		return
 	}

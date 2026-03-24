@@ -70,10 +70,10 @@ type PreciseLocation struct {
 }
 
 func getPreciseLocation() *PreciseLocation {
-	locateBin := "/Users/alexander.wipf/macguard/Locate.app/Contents/MacOS/locate"
+	locateBin := filepath.Join(filepath.Dir(os.Args[0]), "Locate.app", "Contents", "MacOS", "locate")
 
 	// Run as the GUI user so CoreLocation inherits TCC permissions
-	cmd := exec.Command("su", "-", "alexander.wipf", "-c", locateBin)
+	cmd := exec.Command("launchctl", "asuser", consoleUID(), locateBin)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -431,7 +431,7 @@ func playAlarm(guard *GuardState, sound string) {
 				return
 			default:
 			}
-			cmd := exec.Command("launchctl", "asuser", "501", "afplay", soundPath)
+			cmd := exec.Command("launchctl", "asuser", consoleUID(), "afplay", soundPath)
 			cmd.Run()
 			select {
 			case <-stop:
