@@ -216,7 +216,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <div style="font-size:1.4em; font-weight:700; margin-bottom:4px">MacGuard</div>
       <div style="font-size:0.82em; color:var(--muted); margin-bottom:20px">Theft-detection daemon for Apple Silicon Macs</div>
       <div style="margin-bottom:16px; display:flex; align-items:center; justify-content:center; gap:12px">
-        <img src="/logo.png" alt="wipf.com" style="width:40px; height:40px; border-radius:6px">
+        <img src="/favicon.ico" alt="wipf.com" style="width:40px; height:40px; border-radius:6px">
         <div>
           <div style="font-size:0.9em; font-weight:500">Alexander Wipf</div>
           <a href="mailto:alexander@wipf.com" style="font-size:0.82em; color:var(--accent); text-decoration:none">alexander@wipf.com</a>
