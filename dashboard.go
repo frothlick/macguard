@@ -22,7 +22,7 @@ const dashboardHTML = `<!DOCTYPE html>
   .theme-toggle { background: var(--picker-bg); border: 1px solid var(--picker-border); color: var(--muted); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 0.85em; }
   .theme-toggle:hover { filter: brightness(1.2); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid3 { display: grid; grid-template-columns: minmax(0, 200px) 1fr minmax(0, 200px); gap: 16px; margin-bottom: 16px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .card.full { grid-column: 1 / -1; }
   .card h2 { color: var(--muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
@@ -897,6 +897,43 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
     }
   };
 
+  var acMarks = [];
+  if (acData && acData.length > 1) {
+    for (var ai = 1; ai < acData.length; ai++) {
+      if (acData[ai] === true && acData[ai-1] === false) {
+        acMarks.push({idx: ai, icon: '\u25b2', color: '#00cc66'});
+      } else if (acData[ai] === false && acData[ai-1] === true) {
+        acMarks.push({idx: ai, icon: '\u25bc', color: '#ff4444'});
+      }
+    }
+  }
+
+  var acPlugin = {
+    id: 'acLines',
+    afterDraw: function(ch) {
+      if (!acMarks || !acMarks.length) return;
+      var xScale = ch.scales.x, yScale = ch.scales.y, c = ch.ctx;
+      acMarks.forEach(function(m) {
+        var xPos = xScale.getPixelForValue(m.idx);
+        if (xPos < xScale.left || xPos > xScale.right) return;
+        c.save();
+        c.strokeStyle = m.color;
+        c.lineWidth = 1;
+        c.setLineDash([3, 3]);
+        c.beginPath();
+        c.moveTo(xPos, yScale.top);
+        c.lineTo(xPos, yScale.bottom);
+        c.stroke();
+        c.setLineDash([]);
+        c.fillStyle = m.color;
+        c.font = '11px -apple-system, sans-serif';
+        c.textAlign = 'center';
+        c.fillText(m.icon, xPos, yScale.top - 4);
+        c.restore();
+      });
+    }
+  };
+
   var hasPeak = peakData && peakData.some(function(v) { return v > 0; });
   var datasets = [{
     label: 'Average',
@@ -933,6 +970,7 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
       label: 'Battery',
       data: batData,
       borderColor: '#ff4444',
+      segment: { borderColor: function(ctx) { return (acData && acData[ctx.p1DataIndex] === true) ? '#00cc66' : '#ff4444'; } },
       backgroundColor: 'transparent',
       fill: false,
       pointRadius: 0,
@@ -1012,7 +1050,7 @@ function renderChart(labels, data, peakData, lidData, tiltData, lidAngleData, ac
       } } } },
       scales: scales
     },
-    plugins: [zoneBgPlugin, lidPlugin, sunPlugin]
+    plugins: [zoneBgPlugin, lidPlugin, sunPlugin, acPlugin]
   });
 }
 
