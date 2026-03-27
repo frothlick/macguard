@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.5.0 — 2026-03-27
+
+### Intruder Camera Capture
+- Captures 5 photos at 1-second intervals on movement alert via CameraSnap.app (Swift AVFoundation helper)
+- Simultaneous audio recording sent as Telegram voice message
+- Photos and audio sent directly to Telegram
+
+### Lid-Open Detection
+- If lid is closed when alarm triggers, waits up to 5 minutes for intruder to open it
+- 2-second delay after lid open to ensure face is in frame before capturing
+
+### Remote Camera & Video via Telegram
+- `/photo [N]` — capture N photos + audio on demand (default 3, max 10)
+- `/video [N]` — record N-second video with audio (default 10s, max 60s)
+- `sendTelegramPhoto`, `sendTelegramVideo`, `sendTelegramVoice` for multipart file uploads
+
+### Intruder Warning Popup
+- macOS dialog displayed on screen after alarm capture warning the intruder
+
+### New Components
+- `CameraSnap.app` — Swift helper for burst photo capture, audio recording, and video recording
+- `camerasnap.swift` — source for CameraSnap.app with `--video` mode support
+
+## v0.4.0 — 2026-03-24
+
+### Security Hardening
+- Dashboard bound to localhost only
+- Credential masking in settings API
+- Input validation on all endpoints
+- Removed hardcoded Telegram token
+
+### Dashboard Improvements
+- AC power markers and battery tracking
+- Responsive grid layout
+- Custom alarm sound selection (Alert, Evacuation, Intruder, Klaxon, Siren)
+- AC disconnect alarm option
+
 ## v0.3.0 — 2026-03-22
 
 ### Independent Guard Modes
