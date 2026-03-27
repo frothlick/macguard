@@ -1,5 +1,11 @@
 macguard
 locate
 Locate.app/
+CameraSnap.app/Contents/MacOS/
+CameraSnap.app/Contents/_CodeSignature/
+Capture.app/
+capture
+helpers/lidangle
+camera-burst.sh
 .env
 .DS_Store

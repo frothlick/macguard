@@ -227,7 +227,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <div style="margin-bottom:20px">
         <a href="https://github.com/frothlick/macguard" target="_blank" style="font-size:0.85em; color:var(--accent); text-decoration:none">github.com/frothlick/macguard</a>
       </div>
-      <div style="font-size:0.72em; color:var(--dim)">v0.4.0</div>
+      <div style="font-size:0.72em; color:var(--dim)">v0.5.0</div>
     </div>
 
     </div>

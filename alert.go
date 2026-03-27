@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -227,6 +229,165 @@ func sendTelegramMessage(token string, chatID int64, text string) error {
 	return nil
 }
 
+func sendTelegramPhoto(token string, chatID int64, photoPath, caption string) error {
+	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
+
+	f, err := os.Open(photoPath)
+	if err != nil {
+		return fmt.Errorf("open photo: %w", err)
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	w.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+	if caption != "" {
+		w.WriteField("caption", caption)
+	}
+	part, err := w.CreateFormFile("photo", filepath.Base(photoPath))
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return fmt.Errorf("copy photo: %w", err)
+	}
+	w.Close()
+
+	resp, err := http.Post(u, w.FormDataContentType(), &buf)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram sendPhoto: %s %s", resp.Status, body)
+	}
+	return nil
+}
+
+func sendTelegramVoice(token string, chatID int64, audioPath, caption string) error {
+	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendVoice", token)
+
+	f, err := os.Open(audioPath)
+	if err != nil {
+		return fmt.Errorf("open audio: %w", err)
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	w.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+	if caption != "" {
+		w.WriteField("caption", caption)
+	}
+	part, err := w.CreateFormFile("voice", filepath.Base(audioPath))
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return fmt.Errorf("copy audio: %w", err)
+	}
+	w.Close()
+
+	resp, err := http.Post(u, w.FormDataContentType(), &buf)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram sendVoice: %s %s", resp.Status, body)
+	}
+	return nil
+}
+
+func waitForLidOpen() bool {
+	// Poll lid angle every 2 seconds for up to 5 minutes
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		angle := getLidAngle()
+		if angle < 0 || angle >= 10 {
+			return true
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return false
+}
+
+func captureAndSendPhotos(token string, chatID int64, count int) {
+	lidAngle := getLidAngle()
+	lidClosed := lidAngle >= 0 && lidAngle < 5
+
+	if lidClosed {
+		fmt.Println("camera: lid closed, waiting for it to open...")
+		if err := sendTelegramMessage(token, chatID, "Lid is closed. Waiting to capture intruder on open..."); err != nil {
+			fmt.Printf("camera: lid-wait notify failed: %v\n", err)
+		}
+		if !waitForLidOpen() {
+			fmt.Println("camera: lid never opened, giving up")
+			return
+		}
+		// Delay slightly so the intruder's face is in frame
+		fmt.Println("camera: lid opened, capturing in 2s...")
+		time.Sleep(2 * time.Second)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "macguard-cam-")
+	if err != nil {
+		fmt.Printf("camera: temp dir failed: %v\n", err)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+	// Make writable by GUI user (daemon runs as root, CameraSnap runs as user)
+	os.Chmod(tmpDir, 0777)
+
+	// Run burst capture via open (connects to GUI session properly)
+	uid := consoleUID()
+	snapApp := filepath.Join(filepath.Dir(os.Args[0]), "CameraSnap.app")
+	cmd := exec.Command("launchctl", "asuser", uid,
+		"open", "--wait-apps", "-a", snapApp,
+		"--args", tmpDir, strconv.Itoa(count), "1000")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+
+	timeout := time.Duration(count*3+10) * time.Second
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Printf("camera: burst failed: %v\n", err)
+		}
+	case <-time.After(timeout):
+		cmd.Process.Kill()
+		fmt.Println("camera: burst timed out")
+	}
+
+	// Send whatever photos were captured
+	for i := 0; i < count; i++ {
+		photoPath := filepath.Join(tmpDir, fmt.Sprintf("capture_%d.jpg", i))
+		if _, err := os.Stat(photoPath); err != nil {
+			continue
+		}
+		caption := ""
+		if i == 0 {
+			caption = fmt.Sprintf("Intruder capture 1/%d", count)
+		}
+		if err := sendTelegramPhoto(token, chatID, photoPath, caption); err != nil {
+			fmt.Printf("camera: send photo %d failed: %v\n", i, err)
+		}
+	}
+
+	// Send audio recording if captured
+	audioPath := filepath.Join(tmpDir, "audio.m4a")
+	if info, err := os.Stat(audioPath); err == nil && info.Size() > 0 {
+		if err := sendTelegramVoice(token, chatID, audioPath, "Audio from alert"); err != nil {
+			fmt.Printf("camera: send audio failed: %v\n", err)
+		}
+	}
+}
+
 func sendTelegramLocation(token string, chatID int64, lat, lon float64) error {
 	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendLocation", token)
 	resp, err := http.PostForm(u, url.Values{
@@ -291,6 +452,10 @@ func sendAlert(guard *GuardState, token string, chatID int64, mag float64) {
 			if err := sendTelegramLocation(token, chatID, geo.Lat, geo.Lon); err != nil {
 				fmt.Printf("telegram location failed: %v\n", err)
 			}
+		}
+		// Capture camera burst on movement alerts
+		if mag > 0 {
+			go captureAndSendPhotos(token, chatID, 5)
 		}
 	}
 
