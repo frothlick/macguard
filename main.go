@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -382,6 +383,10 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 					"/disarm — Disarm all\n" +
 					"/status — Show guard status\n" +
 					"/location — Send current location\n" +
+					"/photo — Capture 3 photos (+ audio)\n" +
+					"/photo _N_ — Capture N photos (max 10)\n" +
+					"/video — Record 10s video\n" +
+					"/video _N_ — Record Ns video (max 60)\n" +
 					"/msg — Display message on Mac\n" +
 					"/msg _text_ — Display custom message\n" +
 					"/help — Show this help"
@@ -514,6 +519,34 @@ func telegramBotHandler(ctx context.Context, guard *GuardState) {
 				text := fmt.Sprintf("*%s Location*\n%s, %s, %s\n_via %s_", locType, geo.City, geo.Region, geo.Country, geo.ISP)
 				sendTelegramMessage(token, chatID, text)
 				sendTelegramLocation(token, chatID, geo.Lat, geo.Lon)
+
+			case "/photo":
+				if chatID != ownerChat {
+					sendTelegramMessage(token, chatID, "Not authorized.")
+					continue
+				}
+				count := 3
+				if len(cmd) > 7 {
+					if n, err := strconv.Atoi(strings.TrimSpace(cmd[7:])); err == nil && n > 0 && n <= 10 {
+						count = n
+					}
+				}
+				sendTelegramMessage(token, chatID, fmt.Sprintf("Capturing %d photos...", count))
+				go remotePhoto(token, chatID, count)
+
+			case "/video":
+				if chatID != ownerChat {
+					sendTelegramMessage(token, chatID, "Not authorized.")
+					continue
+				}
+				duration := 10
+				if len(cmd) > 7 {
+					if n, err := strconv.Atoi(strings.TrimSpace(cmd[7:])); err == nil && n > 0 && n <= 60 {
+						duration = n
+					}
+				}
+				sendTelegramMessage(token, chatID, fmt.Sprintf("Recording %ds video...", duration))
+				go remoteVideo(token, chatID, duration)
 			}
 		}
 	}

@@ -265,6 +265,42 @@ func sendTelegramPhoto(token string, chatID int64, photoPath, caption string) er
 	return nil
 }
 
+func sendTelegramVideo(token string, chatID int64, videoPath, caption string) error {
+	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendVideo", token)
+
+	f, err := os.Open(videoPath)
+	if err != nil {
+		return fmt.Errorf("open video: %w", err)
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	w.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+	if caption != "" {
+		w.WriteField("caption", caption)
+	}
+	part, err := w.CreateFormFile("video", filepath.Base(videoPath))
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return fmt.Errorf("copy video: %w", err)
+	}
+	w.Close()
+
+	resp, err := http.Post(u, w.FormDataContentType(), &buf)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram sendVideo: %s %s", resp.Status, body)
+	}
+	return nil
+}
+
 func sendTelegramVoice(token string, chatID int64, audioPath, caption string) error {
 	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendVoice", token)
 
@@ -386,6 +422,11 @@ func captureAndSendPhotos(token string, chatID int64, count int) {
 			fmt.Printf("camera: send audio failed: %v\n", err)
 		}
 	}
+
+	// Display warning to intruder
+	msg := `This Mac is being tracked by MacGuard. A photo has been sent to the owner. A sensible action would be to return this Mac to where it was.`
+	script := fmt.Sprintf(`display dialog %q with title "MacGuard" buttons {"OK"} default button "OK" with icon caution`, msg)
+	exec.Command("launchctl", "asuser", consoleUID(), "osascript", "-e", script).Run()
 }
 
 func sendTelegramLocation(token string, chatID int64, lat, lon float64) error {
@@ -667,5 +708,116 @@ func checkGeoFence(guard *GuardState, token string, chatID int64, anchorLat, anc
 			geoAlarmSound = "Intruder"
 		}
 		playAlarm(guard, geoAlarmSound)
+	}
+}
+
+// remotePhoto captures photos on demand and sends to Telegram.
+func remotePhoto(token string, chatID int64, count int) {
+	lidAngle := getLidAngle()
+	if lidAngle >= 0 && lidAngle < 5 {
+		sendTelegramMessage(token, chatID, "Lid is closed, cannot capture photos.")
+		return
+	}
+
+	tmpDir, err := os.MkdirTemp("", "macguard-remote-")
+	if err != nil {
+		sendTelegramMessage(token, chatID, "Failed to create temp directory.")
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+	os.Chmod(tmpDir, 0777)
+
+	uid := consoleUID()
+	snapApp := filepath.Join(filepath.Dir(os.Args[0]), "CameraSnap.app")
+	cmd := exec.Command("launchctl", "asuser", uid,
+		"open", "--wait-apps", "-a", snapApp,
+		"--args", tmpDir, strconv.Itoa(count), "1000")
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+
+	timeout := time.Duration(count*3+10) * time.Second
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Printf("remote photo: burst failed: %v\n", err)
+		}
+	case <-time.After(timeout):
+		cmd.Process.Kill()
+		sendTelegramMessage(token, chatID, "Camera capture timed out.")
+		return
+	}
+
+	sent := 0
+	for i := 0; i < count; i++ {
+		photoPath := filepath.Join(tmpDir, fmt.Sprintf("capture_%d.jpg", i))
+		if _, err := os.Stat(photoPath); err != nil {
+			continue
+		}
+		if err := sendTelegramPhoto(token, chatID, photoPath, ""); err != nil {
+			fmt.Printf("remote photo: send %d failed: %v\n", i, err)
+		} else {
+			sent++
+		}
+	}
+
+	// Send audio if captured
+	audioPath := filepath.Join(tmpDir, "audio.m4a")
+	if info, err := os.Stat(audioPath); err == nil && info.Size() > 0 {
+		sendTelegramVoice(token, chatID, audioPath, "")
+	}
+
+	if sent == 0 {
+		sendTelegramMessage(token, chatID, "No photos captured.")
+	}
+}
+
+// remoteVideo records a short video and sends to Telegram.
+func remoteVideo(token string, chatID int64, duration int) {
+	lidAngle := getLidAngle()
+	if lidAngle >= 0 && lidAngle < 5 {
+		sendTelegramMessage(token, chatID, "Lid is closed, cannot record video.")
+		return
+	}
+
+	tmpDir, err := os.MkdirTemp("", "macguard-video-")
+	if err != nil {
+		sendTelegramMessage(token, chatID, "Failed to create temp directory.")
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+	os.Chmod(tmpDir, 0777)
+
+	uid := consoleUID()
+	snapApp := filepath.Join(filepath.Dir(os.Args[0]), "CameraSnap.app")
+	cmd := exec.Command("launchctl", "asuser", uid,
+		"open", "--wait-apps", "-a", snapApp,
+		"--args", tmpDir, "--video", strconv.Itoa(duration))
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+
+	timeout := time.Duration(duration+15) * time.Second
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Printf("remote video: recording failed: %v\n", err)
+			sendTelegramMessage(token, chatID, "Video recording failed.")
+			return
+		}
+	case <-time.After(timeout):
+		cmd.Process.Kill()
+		sendTelegramMessage(token, chatID, "Video recording timed out.")
+		return
+	}
+
+	videoPath := filepath.Join(tmpDir, "video.mp4")
+	if info, err := os.Stat(videoPath); err == nil && info.Size() > 0 {
+		if err := sendTelegramVideo(token, chatID, videoPath, ""); err != nil {
+			fmt.Printf("remote video: send failed: %v\n", err)
+			sendTelegramMessage(token, chatID, "Failed to send video.")
+		}
+	} else {
+		sendTelegramMessage(token, chatID, "No video recorded.")
 	}
 }
